@@ -11,34 +11,38 @@
 const PUC = {
   '1105': 'Caja',
   '1110': 'Bancos',
-  '1305': 'Clientes (Deudores Comerciales)',
+  '1305': 'Clientes (Deudores comerciales)',
   '1455': 'Cuentas por Cobrar – Empleados',
-  '1620': 'Seguros Pagados por Anticipado',
-  '2305': 'Nómina por Pagar',
-  '2370': 'Retención en la Fuente por Pagar',
-  '2380': 'Aportes Seguridad Social por Pagar',
-  '2408': 'IVA Generado por Pagar',
-  '2610': 'Cesantías por Pagar',
-  '2615': 'Intereses Cesantías por Pagar',
-  '2630': 'Prima de Servicios por Pagar',
-  '2640': 'Vacaciones por Pagar',
-  '3105': 'Capital Social – Aportes',
-  '3305': 'Reservas de Capital',
-  '3610': 'Utilidades del Ejercicio',
-  '4135': 'Ingresos – Servicios Logísticos',
-  '5105': 'Gastos Personal – Salarios',
-  '5110': 'Gastos Personal – Aux. Transporte',
-  '5115': 'Gastos Personal – Aux. Rodamiento (No salarial)',
-  '5120': 'Gastos Personal – Dotación Obligatoria',
-  '5135': 'Provisión Cesantías',
-  '5136': 'Provisión Int. Cesantías',
-  '5137': 'Provisión Prima de Servicios',
-  '5138': 'Provisión Vacaciones',
-  '5140': 'Aportes Seguridad Social – Empresa',
-  '5150': 'Gastos Generales – Pólizas y Seguros',
-  '5195': 'Gastos Generales – Honorarios',
-  '5199': 'Gastos Generales – Otros',
-  '5899': 'Gastos No Deducibles – Multas (Art. 89 E.T.)',
+  '1620': 'Seguros pagados por anticipado',
+  '2305': 'Nómina por pagar',
+  '2370': 'Retención en la fuente por pagar',
+  '2380': 'Aportes Seguridad Social por pagar',
+  '2408': 'IVA Generado por pagar',
+  '2610': 'Cesantías por pagar',
+  '2615': 'Intereses cesantías por pagar',
+  '2630': 'Prima de servicios por pagar',
+  '2640': 'Vacaciones por pagar',
+  '2390': 'Cuentas por pagar a socios',
+  '2396': 'Préstamos de socios – Pasivo financiero',
+  '3105': 'Capital suscrito y pagado',
+  '3120': 'Capital por capitalizar (inversiones transitorio)',
+  '3305': 'Reservas de capital',
+  '3610': 'Utilidades del ejercicio',
+  '3705': 'Utilidades acumuladas de ejercicios anteriores',
+  '4135': 'Ingresos – Servicios logísticos',
+  '5105': 'Gastos personal – Salarios',
+  '5110': 'Gastos personal – Aux. transporte',
+  '5115': 'Gastos personal – Aux. rodamiento (no salarial)',
+  '5120': 'Gastos personal – Dotación obligatoria',
+  '5135': 'Provisión cesantías',
+  '5136': 'Provisión int. cesantías',
+  '5137': 'Provisión prima de servicios',
+  '5138': 'Provisión vacaciones',
+  '5140': 'Aportes seguridad social – empresa',
+  '5150': 'Gastos generales – pólizas y seguros',
+  '5195': 'Gastos generales – honorarios',
+  '5199': 'Gastos generales – otros',
+  '5899': 'Gastos no deducibles – multas (Art. 89 E.T.)',
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,15 +52,16 @@ const S = {
   params: { smlv: 1423500, auxTransporte: 200000, auxRodamiento: 300000, diasPeriodo: 30 },
 
   domiciliarios: [
-    { id: 'D001', nombre: 'Carlos Andrés Ríos', doc: '1.023.456.789', placa: 'BZK-14A', tel: '314 678 9012', ingreso: '2025-03-01', cxc: 0 },
+    { id: 'D001', nombre: 'Manuel Fernando Toro', doc: '98.406.138', placa: 'BZK-14A', tel: '314 678 9012', ingreso: '2025-03-01', cxc: 0 },
     { id: 'D002', nombre: 'Jhon Fredy Cardona', doc: '98.345.678', placa: 'MSP-22C', tel: '316 234 5678', ingreso: '2025-05-15', cxc: 0 },
     { id: 'D003', nombre: 'Luz Marina Ospina', doc: '43.567.890', placa: 'KLT-55B', tel: '310 987 6543', ingreso: '2025-07-01', cxc: 0 },
     { id: 'D004', nombre: 'Rodrigo Estrada Gil', doc: '71.234.567', placa: 'NAP-88D', tel: '312 456 7890', ingreso: '2024-11-01', cxc: 0 },
   ],
 
   socios: [
-    { id: 'S001', nombre: 'Socio 1' },
-    { id: 'S002', nombre: 'Socio 2' },
+    { id: 'S001', nombre: 'Henry Camilo Taborda' },
+    { id: 'S002', nombre: 'María Isabel Arias' },
+    { id: 'S003', nombre: 'Manuel Fernando Toro' },
   ],
 
   asientosSocios: [],
@@ -135,12 +140,21 @@ function calcNomina(dom, dias) {
 // 5. GENERADORES DE ASIENTOS CONTABLES
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Asiento genérico: array de { cuenta, desc, debito, credito } */
+/** Asiento genérico: array de { cuenta, desc, débito, crédito } */
 function buildAsiento({ comp, fecha, modulo, chip, nombre, desc, lineas }) {
   const totD = lineas.reduce((a, l) => a + l.debito, 0);
   const totC = lineas.reduce((a, l) => a + l.credito, 0);
   return { comp, fecha: fecha || today(), modulo, chip, nombre, desc, lineas, totD, totC };
 }
+
+// ── Microcopy dinámico por tipo de movimiento (Apple HIG) ────────────────
+const TIPO_SOCIO_HINTS = {
+  aporte: 'Inyección formal de dinero que aumenta el patrimonio de la empresa. No representa una deuda a devolver a corto plazo.',
+  gasto_socio: 'El socio pagó con su dinero personal un gasto de la empresa y la empresa le reembolsará exactamente ese valor.',
+  inversion: 'Fondos o activos destinados a proyectos o equipamiento clave, pendientes por formalizar en patrimonio.',
+  retiro: 'Pago de ganancias o dividendos acumulados generados por la empresa hacia el socio.',
+  prestamo_socio: 'Préstamo de dinero temporal a la empresa que genera una obligación de devolución al socio a corto/mediano plazo.',
+};
 
 function asientoSocio(tipo, socio, valor, desc, fecha) {
   const comp = nextComp('SOC');
@@ -148,31 +162,45 @@ function asientoSocio(tipo, socio, valor, desc, fecha) {
   let chip = 'chip-socio';
 
   switch (tipo) {
+    // ── NIIF Pymes: Aporte de Capital (Sección 22.7) ───────────────────
+    // Débito: 1110 Bancos | Crédito: 3105 Capital Suscrito y Pagado
     case 'aporte':
       lineas = [
-        { cuenta: '1110', desc: `Aporte capital – ${socio.nombre}`, debito: valor, credito: 0 },
-        { cuenta: '3105', desc: `Capital social – ${socio.nombre}`, debito: 0, credito: valor },
+        { cuenta: '1110', desc: `Aporte de capital – ${socio.nombre}`, debito: valor, credito: 0 },
+        { cuenta: '3105', desc: `Capital suscrito y pagado – ${socio.nombre}`, debito: 0, credito: valor },
       ]; break;
+
+    // ── Gasto pagado por Socio (reembolso) ─────────────────────────
+    // Débito: 5199 Gasto Operativo | Crédito: 2390 CxP Socios (Pasivo)
     case 'gasto_socio':
       lineas = [
-        { cuenta: '5199', desc: `Gasto pagado por socio – ${desc}`, debito: valor, credito: 0 },
-        { cuenta: '2305', desc: `Reembolso pendiente a ${socio.nombre}`, debito: 0, credito: valor },
+        { cuenta: '5199', desc: `Gasto operativo pagado por socio – ${desc || socio.nombre}`, debito: valor, credito: 0 },
+        { cuenta: '2390', desc: `Reembolso pendiente a ${socio.nombre} (CxP Socios)`, debito: 0, credito: valor },
       ]; break;
+
+    // ── Inversión del Socio ──────────────────────────────────────
+    // Débito: 1110 Bancos | Crédito: 3120 Capital por Capitalizar (Transitorio)
     case 'inversion':
       lineas = [
         { cuenta: '1110', desc: `Inversión socio – ${socio.nombre}`, debito: valor, credito: 0 },
-        { cuenta: '3305', desc: `Reserva inversión – ${socio.nombre}`, debito: 0, credito: valor },
+        { cuenta: '3120', desc: `Capital de trabajo por capitalizar – ${socio.nombre}`, debito: 0, credito: valor },
       ]; break;
+
+    // ── Retiro / Distribución de Utilidades (NIIF Pymes § 22.18) ───────
+    // Débito: 3705 Utilidades Acumuladas | Crédito: 1110 Bancos
     case 'retiro':
       chip = 'chip-cxc';
       lineas = [
-        { cuenta: '3610', desc: `Retiro utilidades – ${socio.nombre}`, debito: valor, credito: 0 },
-        { cuenta: '1110', desc: `Pago retiro socio`, debito: 0, credito: valor },
+        { cuenta: '3705', desc: `Distribución de utilidades – ${socio.nombre}`, debito: valor, credito: 0 },
+        { cuenta: '1110', desc: `Pago dividendos / retiro socio`, debito: 0, credito: valor },
       ]; break;
+
+    // ── Préstamo del Socio a Empresa (Art. 35 E.T.) ─────────────────
+    // Débito: 1110 Bancos | Crédito: 2396 Préstamos Socios (Pasivo Financiero)
     case 'prestamo_socio':
       lineas = [
-        { cuenta: '1110', desc: `Préstamo socio – ${socio.nombre}`, debito: valor, credito: 0 },
-        { cuenta: '2305', desc: `Pasivo préstamo socio`, debito: 0, credito: valor },
+        { cuenta: '1110', desc: `Préstamo recibido de socio – ${socio.nombre}`, debito: valor, credito: 0 },
+        { cuenta: '2396', desc: `Pasivo financiero – Préstamo ${socio.nombre}`, debito: 0, credito: valor },
       ]; break;
   }
   const a = buildAsiento({ comp, fecha, modulo: 'socio', chip, nombre: socio.nombre, desc: desc || tipo, lineas });
@@ -234,7 +262,7 @@ function asientoMovDom(tipo, dom, valor, desc, prov, fecha, polizaDesde, polizaH
         { cuenta: '1110', desc: `Pago dotación: ${prov || 'Proveedor'}`, debito: 0, credito: valor },
       ];
       alerta = {
-        clase: 'alerta-success', titulo: '✅ Gasto Deducible — Dotación Obligatoria',
+        clase: 'alerta-success', titulo: '✅ Gasto deducible — Dotación obligatoria',
         texto: `Casco, impermeable y uniforme se reconocen como <strong>gasto operativo deducible</strong> en cuenta 5120. Cumple Art. 107 E.T.`
       };
       break;
@@ -249,10 +277,10 @@ function asientoMovDom(tipo, dom, valor, desc, prov, fecha, polizaDesde, polizaH
         { cuenta: '1110', desc: `Pago póliza: ${prov || 'Aseguradora'}`, debito: 0, credito: valor },
       ];
       alerta = {
-        clase: 'alerta-info', titulo: esAnticipado ? '🔵 Póliza → Gasto Pagado por Anticipado' : '🔵 Póliza → Gasto del Período',
+        clase: 'alerta-info', titulo: esAnticipado ? '🔵 Póliza → Gasto pagado por anticipado' : '🔵 Póliza → Gasto del período',
         texto: esAnticipado
-          ? `Vigencia <strong>${dias} días</strong>. Registrado en <strong>1620 – Seguros Pagados por Anticipado</strong>. Se amortizará mensualmente.`
-          : `Póliza dentro del período. Registrado en <strong>5150 – Gastos Seguros</strong>. Deducible (Art. 107 E.T.).`
+          ? `Vigencia <strong>${dias} días</strong>. Registrado en <strong>1620 – Seguros pagados por anticipado</strong>. Se amortizará mensualmente.`
+          : `Póliza dentro del período. Registrado en <strong>5150 – Gastos seguros</strong>. Deducible (Art. 107 E.T.).`
       };
       break;
     }
@@ -305,20 +333,20 @@ function asientoNomina(liq) {
   const d = liq.dom;
   const lineas = [
     { cuenta: '5105', desc: `Salario – ${d.nombre}`, debito: liq.salario, credito: 0 },
-    { cuenta: '5110', desc: `Aux. Transporte – ${d.nombre}`, debito: liq.transp, credito: 0 },
+    { cuenta: '5110', desc: `Aux. transporte – ${d.nombre}`, debito: liq.transp, credito: 0 },
     { cuenta: '5115', desc: `Rodamiento (no salarial) – ${d.nombre}`, debito: liq.rodamiento, credito: 0 },
-    { cuenta: '5135', desc: `Prov. Cesantías – ${d.nombre}`, debito: liq.cesantias, credito: 0 },
+    { cuenta: '5135', desc: `Prov. cesantías – ${d.nombre}`, debito: liq.cesantias, credito: 0 },
     { cuenta: '5136', desc: `Prov. Int. Ces. – ${d.nombre}`, debito: liq.intCes, credito: 0 },
-    { cuenta: '5137', desc: `Prov. Prima – ${d.nombre}`, debito: liq.prima, credito: 0 },
-    { cuenta: '5138', desc: `Prov. Vacaciones – ${d.nombre}`, debito: liq.vacaciones, credito: 0 },
+    { cuenta: '5137', desc: `Prov. prima – ${d.nombre}`, debito: liq.prima, credito: 0 },
+    { cuenta: '5138', desc: `Prov. vacaciones – ${d.nombre}`, debito: liq.vacaciones, credito: 0 },
     { cuenta: '5140', desc: `Aportes SS empresa – ${d.nombre}`, debito: liq.ssEmpresa, credito: 0 },
     { cuenta: '2305', desc: `Neto a pagar – ${d.nombre}`, debito: 0, credito: liq.neto },
     { cuenta: '2380', desc: `SS empleado – ${d.nombre}`, debito: 0, credito: liq.saludEmp + liq.pensionEmp },
     { cuenta: '1455', desc: `Descuento CxC – ${d.nombre}`, debito: 0, credito: liq.descCxC },
-    { cuenta: '2610', desc: `Prov. Ces. – ${d.nombre}`, debito: 0, credito: liq.cesantias },
-    { cuenta: '2615', desc: `Prov. Int.Ces. – ${d.nombre}`, debito: 0, credito: liq.intCes },
-    { cuenta: '2630', desc: `Prov. Prima – ${d.nombre}`, debito: 0, credito: liq.prima },
-    { cuenta: '2640', desc: `Prov. Vac. – ${d.nombre}`, debito: 0, credito: liq.vacaciones },
+    { cuenta: '2610', desc: `Prov. cesantías – ${d.nombre}`, debito: 0, credito: liq.cesantias },
+    { cuenta: '2615', desc: `Prov. Int. Ces. – ${d.nombre}`, debito: 0, credito: liq.intCes },
+    { cuenta: '2630', desc: `Prov. prima – ${d.nombre}`, debito: 0, credito: liq.prima },
+    { cuenta: '2640', desc: `Prov. vacaciones – ${d.nombre}`, debito: 0, credito: liq.vacaciones },
     { cuenta: '2380', desc: `SS empresa – ${d.nombre}`, debito: 0, credito: liq.ssEmpresa },
   ].filter(l => l.debito > 0 || l.credito > 0);
 
@@ -587,17 +615,14 @@ function renderLibro(filtro = '') {
 // 10. ACTUALIZAR KPIs
 // ─────────────────────────────────────────────────────────────────────────────
 function updateKpiSocios() {
-  const aportes = S.asientosSocios.filter(a => a.desc === 'aporte' || a.desc?.includes('aporte') || true)
-    .filter(a => ['aporte', 'inversion', 'prestamo_socio'].includes(
-      S.asientosSocios.find(x => x.comp === a.comp)?.desc || ''
-    )).reduce((s, a) => s + a.totD, 0);
-
   let ap = 0, ret = 0, gso = 0;
   S.asientosSocios.forEach(a => {
-    // simple sum por lineas
     a.lineas.forEach(l => {
-      if (l.cuenta === '3105' || l.cuenta === '3305') ap += l.credito;
-      if (l.cuenta === '3610') ret += l.debito;
+      // Aportes: 3105 Capital Suscrito + 3120 Capital por Capitalizar (inversión)
+      if (l.cuenta === '3105' || l.cuenta === '3120') ap += l.credito;
+      // Retiros / distribución: 3705 Utilidades Acumuladas debitadas
+      if (l.cuenta === '3705') ret += l.debito;
+      // Gastos pagados por socio: 5199 debitado
       if (l.cuenta === '5199' && l.debito > 0) gso += l.debito;
     });
   });
@@ -784,7 +809,7 @@ function exportarCSV() {
     l.cuenta, `"${PUC[l.cuenta] || l.cuenta}"`,
     l.debito || 0, l.credito || 0
   ]));
-  const csv = [['Comprobante', 'Fecha', 'Módulo', 'Tercero', 'Descripción', 'Cuenta', 'Nombre Cuenta', 'Débito', 'Crédito'].join(','),
+  const csv = [['Comprobante', 'Fecha', 'Módulo', 'Tercero', 'Descripción', 'Cuenta', 'Nombre cuenta', 'Débito', 'Crédito'].join(','),
   ...rows.map(r => r.join(','))].join('\n');
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -794,7 +819,110 @@ function exportarCSV() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 12. INICIALIZACIÓN Y EVENT LISTENERS
+// 12. ALERTAS FISCALES / CONTABLES — MÓDULO SOCIOS
+// ─────────────────────────────────────────────────────────────────────────────
+function mostrarAlertaFiscalSocio(tipo, soporte) {
+  const banner = document.getElementById('alertaSocioFiscal');
+  if (!banner) return;
+
+  const ALERTAS = {
+    aporte: [
+      {
+        nivel: 'info',
+        icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
+        titulo: 'Cuenta 3105 · Capital Suscrito y Pagado',
+        texto: 'Este aporte afecta directamente el <strong>patrimonio</strong> (NIIF Pymes § 22.7). No genera deuda ni obligación de devolución.',
+      },
+      {
+        nivel: 'warn',
+        icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--yellow)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+        titulo: 'Documento requerido: Acta de Junta de Socios',
+        texto: !soporte
+          ? '⚠ No registraste un soporte. Para aportes de capital se <strong>requiere Acta de Junta de Socios</strong> firmada para soportar el aumento patrimonial ante la DIAN.'
+          : `Soporte registrado: <strong>${soporte}</strong>. Verifica que sea el Acta de Junta de Socios correspondiente.`,
+      },
+    ],
+    gasto_socio: [
+      {
+        nivel: 'info',
+        icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`,
+        titulo: 'Cuentas: 5199 Gasto Operativo · 2390 CxP Socios (Pasivo)',
+        texto: 'El reembolso genera un <strong>pasivo</strong> con el socio. El valor debe corresponder <em>exactamente</em> al desembolso real documentado.',
+      },
+      {
+        nivel: 'warn',
+        icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--yellow)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+        titulo: 'Soporte obligatorio: factura o documento a nombre de ATL',
+        texto: 'Se requiere <strong>factura o documento soporte</strong> expedido a nombre de la empresa (ATL). Gastos soportados a nombre del socio pueden ser <em>no deducibles</em> ante la DIAN.',
+      },
+    ],
+    inversion: [
+      {
+        nivel: 'info',
+        icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>`,
+        titulo: 'Cuenta 3120 · Capital por Capitalizar (Transitorio)',
+        texto: 'Registrado como capital transitorio hasta su <strong>formalización patrimonial</strong> mediante acta o escritura. (NIIF Pymes § 22 + § 17 activos).',
+      },
+      {
+        nivel: 'warn',
+        icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--yellow)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+        titulo: 'Pendiente: formalizar en patrimonio',
+        texto: 'Este movimiento <strong>debe formalizarse</strong> mediante Acta de Junta de Socios o escritura pública antes del cierre contable.',
+      },
+    ],
+    retiro: [
+      {
+        nivel: 'info',
+        icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>`,
+        titulo: 'Cuentas: 3705 Utilidades Acumuladas · 1110 Bancos',
+        texto: 'Débita utilidades acumuladas (NIIF Pymes § 22.18). Solo puede realizarse si la empresa <strong>cuenta con utilidades disponibles</strong> para distribuir.',
+      },
+      {
+        nivel: 'danger',
+        icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+        titulo: '⚠ Alerta Fiscal · Retención en la Fuente por Dividendos',
+        texto: 'Verificar aplicación de <strong>Retención en la Fuente sobre dividendos</strong> según <em>Art. 242 del Estatuto Tributario</em>. Dividendos gravados: tarifa del 10 %. Informar a revisor fiscal antes del pago.',
+      },
+    ],
+    prestamo_socio: [
+      {
+        nivel: 'info',
+        icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>`,
+        titulo: 'Cuentas: 1110 Bancos · 2396 Pasivo Financiero – Préstamos Socios',
+        texto: 'Registrado como <strong>pasivo financiero</strong> a corto/mediano plazo. El socio es acreedor de la empresa y tiene derecho a la devolución del capital.',
+      },
+      {
+        nivel: 'danger',
+        icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+        titulo: '⚠ Revisoría Fiscal · Intereses Presuntivos (Art. 35 E.T.)',
+        texto: 'Los préstamos de socios a la empresa <strong>generan intereses presuntivos</strong> según el <em>Art. 35 del Estatuto Tributario</em>. Tasa presuntiva DTF vigente. Controlar plazos y documentar condiciones.',
+      },
+    ],
+  };
+
+  const items = ALERTAS[tipo];
+  if (!items || !items.length) {
+    banner.innerHTML = '';
+    banner.classList.add('hidden');
+    return;
+  }
+
+  banner.innerHTML = items.map(item => `
+    <div class="alerta-fiscal-item ${item.nivel}">
+      <span class="alerta-fiscal-icon">${item.icon}</span>
+      <div class="alerta-fiscal-body">
+        <span class="alerta-fiscal-title">${item.titulo}</span>
+        <span class="alerta-fiscal-text">${item.texto}</span>
+      </div>
+    </div>
+  `).join('');
+
+  banner.classList.remove('hidden');
+  banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 13. INICIALIZACIÓN Y EVENT LISTENERS
 // ─────────────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -830,10 +958,26 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ══ SOCIOS ══
+
+  // Microcopy dinámico al cambiar tipo de movimiento
+  document.getElementById('tipoSocio')?.addEventListener('change', function () {
+    const hint = document.getElementById('hintTipoSocio');
+    if (!hint) return;
+    const texto = TIPO_SOCIO_HINTS[this.value];
+    if (texto) {
+      hint.textContent = texto;
+      hint.classList.remove('hidden');
+      requestAnimationFrame(() => hint.classList.add('visible'));
+    } else {
+      hint.classList.remove('visible');
+      hint.addEventListener('transitionend', () => hint.classList.add('hidden'), { once: true });
+    }
+  });
+
   document.getElementById('btnNuevoSocio')?.addEventListener('click', () => {
     const el = document.getElementById('formSocioWrap');
     el?.scrollIntoView({ behavior: 'smooth' });
-    document.getElementById('valorSocio')?.focus();
+    document.getElementById('tipoSocio')?.focus();
   });
 
   document.getElementById('btnGuardarSocio')?.addEventListener('click', () => {
@@ -843,6 +987,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const desc = document.getElementById('descSocio').value.trim();
     const soporte = document.getElementById('soporteSocio').value.trim();
     const fecha = document.getElementById('fechaSocio').value;
+    const modalidad = document.getElementById('modalidadSocio').value;
 
     if (!tipo || !socioId || valor <= 0) { alert('Completa tipo, socio y valor.'); return; }
 
@@ -850,8 +995,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const a = asientoSocio(tipo, socio, valor, desc, fecha);
 
     const tipoLabels = {
-      aporte: 'Aporte Capital', gasto_socio: 'Gasto x Socio',
-      inversion: 'Inversión', retiro: 'Retiro', prestamo_socio: 'Préstamo Socio'
+      aporte: 'Aporte Capital',
+      gasto_socio: 'Gasto x Socio',
+      inversion: 'Inversión Socio',
+      retiro: 'Retiro / Dividendos',
+      prestamo_socio: 'Préstamo Socio',
     };
 
     addTableRow('bodySocios', `
@@ -859,6 +1007,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <td>${socio.nombre}</td>
       <td><span class="chip chip-socio">${tipoLabels[tipo] || tipo}</span></td>
       <td style="color:var(--text-2);font-size:12.5px">${desc || '—'}</td>
+      <td style="color:var(--text-2);font-size:12.5px">${modalidad || '—'}</td>
       <td class="text-right mono-cell">${fmt(valor)}</td>
       <td><span class="mono-cell" style="font-size:11px;color:var(--accent)">${a.comp}</span></td>
     `, 'countSocios');
@@ -867,10 +1016,16 @@ document.addEventListener('DOMContentLoaded', () => {
     updateKpiSocios();
     renderLibro();
 
+    // Alertas fiscales / contables post-guardado
+    mostrarAlertaFiscalSocio(tipo, soporte);
+
     // Reset
-    ['tipoSocio', 'socioNombre', 'valorSocio', 'descSocio', 'soporteSocio'].forEach(id => {
+    ['tipoSocio', 'socioNombre', 'valorSocio', 'descSocio', 'soporteSocio', 'modalidadSocio'].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = '';
     });
+    // Ocultar microcopy al resetear
+    const hint = document.getElementById('hintTipoSocio');
+    if (hint) { hint.classList.remove('visible'); hint.classList.add('hidden'); }
   });
 
   // ══ VENTAS ══

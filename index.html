@@ -155,7 +155,7 @@
         <!-- Formulario socios -->
         <div class="card form-card" id="formSocioWrap">
           <div class="card-header">
-            <span class="card-title">Registrar Movimiento</span>
+            <span class="card-title">Registrar movimiento</span>
           </div>
           <div class="card-body">
             <div class="field-group">
@@ -168,13 +168,26 @@
                 <option value="retiro">Retiro / Distribución de Utilidades</option>
                 <option value="prestamo_socio">Préstamo del Socio a Empresa</option>
               </select>
+              <!-- Microcopy dinámico Apple HIG -->
+              <div class="field-hint hidden" id="hintTipoSocio" aria-live="polite"></div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="modalidadSocio">Modalidad</label>
+              <select class="field-select" id="modalidadSocio">
+                <option value="">— Seleccionar —</option>
+                <option value="dinero">Dinero</option>
+                <option value="bien_activo">Bien/activo</option>
+                <option value="aporte_pendiente">Aporte pendiente de pago</option>
+                <option value="aporte_futura_cap">Aporte para futura capitalización</option>
+              </select>
             </div>
             <div class="field-group">
               <label class="field-label">Socio</label>
               <select class="field-select" id="socioNombre">
                 <option value="">— Seleccionar socio —</option>
-                <option value="socio1">Socio 1</option>
-                <option value="socio2">Socio 2</option>
+                <option value="S001">Henry Camilo Taborda</option>
+                <option value="S002">María Isabel Arias</option>
+                <option value="S003">Manuel Fernando Toro</option>
               </select>
             </div>
             <div class="field-row">
@@ -196,6 +209,11 @@
               <input type="text" class="field-input" id="soporteSocio"
                 placeholder="Nro. consignación, recibo, factura…" />
             </div>
+            <div class="form-group">
+              <label for="soporteArchivo">Adjunta documento soporte</label>
+              <input type="file" id="soporteArchivo" class="form-control" accept=".pdf,.png,.jpg,.jpeg" />
+              <small style="color: var(--text-muted); font-size: 11px;">Formatos permitidos: PDF, PNG, JPG</small>
+            </div>
             <button class="btn-primary full" id="btnGuardarSocio">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
@@ -204,6 +222,9 @@
               </svg>
               Guardar Registro
             </button>
+
+            <!-- Alerta fiscal / contable dinámica -->
+            <div class="alerta-fiscal hidden" id="alertaSocioFiscal"></div>
           </div>
         </div>
 
@@ -221,13 +242,14 @@
                   <th>Socio</th>
                   <th>Tipo</th>
                   <th>Descripción</th>
+                  <th>Modalidad</th>
                   <th class="text-right">Valor</th>
                   <th>Asiento</th>
                 </tr>
               </thead>
               <tbody id="bodySocios">
                 <tr>
-                  <td colspan="6" class="empty-row">Sin registros aún.</td>
+                  <td colspan="7" class="empty-row">Sin registros aún.</td>
                 </tr>
               </tbody>
             </table>
