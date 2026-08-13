@@ -159,14 +159,14 @@
           </div>
           <div class="card-body">
             <div class="field-group">
-              <label class="field-label">Tipo de movimiento</label>
+              <label class="field-label">Tipo de operación realizada</label>
               <select class="field-select" id="tipoSocio">
-                <option value="">— Seleccionar —</option>
-                <option value="aporte">Aporte de Capital</option>
-                <option value="gasto_socio">Gasto pagado por Socio (reembolso)</option>
-                <option value="inversion">Inversión del Socio</option>
-                <option value="retiro">Retiro / Distribución de Utilidades</option>
-                <option value="prestamo_socio">Préstamo del Socio a Empresa</option>
+                <option value="">— Seleccionar operación —</option>
+                <option value="capital">Aporte de capital (Patrimonio)</option>
+                <option value="prestamo_de_socio">El socio prestó dinero a la empresa (Pasivo)</option>
+                <option value="prestamo_a_socio">La empresa prestó dinero al socio (Cuenta por cobrar)</option>
+                <option value="gasto_pagado_socio">El socio pagó un gasto de la empresa (Cuenta por pagar)</option>
+                <option value="distribucion">Distribución de utilidades / Dividendos (Retiro)</option>
               </select>
               <!-- Microcopy dinámico Apple HIG -->
               <div class="field-hint hidden" id="hintTipoSocio" aria-live="polite"></div>
