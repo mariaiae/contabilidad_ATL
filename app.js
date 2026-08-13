@@ -416,10 +416,13 @@ function htmlAsiento(a) {
   if (!a) return '';
   const lineasHtml = a.lineas.map(l => {
     const isCredito = l.debito === 0 && l.credito > 0;
+    const nombreCuenta = PUC[l.cuenta] || l.cuenta;
     return `
       <tr>
-        <td class="cuenta-col${isCredito ? ' indented' : ''}">${l.cuenta}</td>
-        <td class="desc-col${isCredito ? ' indented' : ''}">${PUC[l.cuenta] || l.cuenta} — ${l.desc}</td>
+        <td class="cuenta-col${isCredito ? ' indented' : ''}">
+          <strong>${nombreCuenta}</strong> <span style="color: var(--text-muted); font-size: 0.85em;">Cód. ${l.cuenta}</span>
+        </td>
+        <td class="desc-col${isCredito ? ' indented' : ''}">${l.desc}</td>
         <td class="text-right mono-cell">${l.debito > 0 ? fmt(l.debito) : '<span style="color:var(--text-3)">—</span>'}</td>
         <td class="text-right mono-cell">${l.credito > 0 ? fmt(l.credito) : '<span style="color:var(--text-3)">—</span>'}</td>
       </tr>`;
