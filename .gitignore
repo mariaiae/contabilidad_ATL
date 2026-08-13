@@ -1,0 +1,35 @@
+# Dependencias
+node_modules/
+
+# Vite / Build
+.vite/
+dist/
+
+# Archivos internos npm
+.package-lock.json
+package-lock.json
+
+# Módulos instalados sueltos en raíz (artefactos npm)
+.bin/
+@oxc-project/
+@rolldown/
+detect-libc/
+fdir/
+lightningcss-win32-x64-msvc/
+lightningcss/
+nanoid/
+picocolors/
+picomatch/
+postcss/
+rolldown/
+source-map-js/
+tinyglobby/
+vite/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+*.log

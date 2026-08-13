@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Módulo Contable · Contabilidad ATL</title>
+  <meta name="description"
+    content="Sistema contable integral: socios, clientes, nómina operativa, proveedores e impuestos para operación logística con domiciliarios." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+
+  <!-- ══════════════ SIDEBAR ══════════════ -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+          <path d="M2 17l10 5 10-5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+          <path d="M2 12l10 5 10-5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-name">Contabilidad</span>
+        <span class="brand-sub">ATL · 2026</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <span class="nav-group-label">Módulos</span>
+
+      <button class="nav-item active" data-tab="socios" id="nav-socios">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
+        </span>
+        <span class="nav-label">Socios</span>
+        <span class="nav-badge" id="badge-socios">0</span>
+      </button>
+
+      <button class="nav-item" data-tab="clientes" id="nav-clientes">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <path d="M8 21h8M12 17v4" />
+          </svg>
+        </span>
+        <span class="nav-label">Clientes · Ventas</span>
+        <span class="nav-badge" id="badge-clientes">0</span>
+      </button>
+
+      <button class="nav-item" data-tab="nomina" id="nav-nomina">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+            <circle cx="12" cy="12" r="2" />
+            <path d="M6 12h.01M18 12h.01" />
+          </svg>
+        </span>
+        <span class="nav-label">Trabajadores · Nómina</span>
+        <span class="nav-badge" id="badge-nomina">4</span>
+      </button>
+
+      <button class="nav-item" data-tab="operacion" id="nav-operacion">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <path d="M16 10a4 4 0 0 1-8 0" />
+          </svg>
+        </span>
+        <span class="nav-label">Operación · Proveedores</span>
+        <span class="nav-badge" id="badge-operacion">0</span>
+      </button>
+
+      <button class="nav-item" data-tab="impuestos" id="nav-impuestos">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+            <polyline points="10 9 9 9 8 9" />
+          </svg>
+        </span>
+        <span class="nav-label">Impuestos</span>
+        <span class="nav-badge alert" id="badge-impuestos">!</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="period-selector">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="4" width="18" height="18" rx="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+        <span id="periodoActual">Agosto 2026</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ══════════════ MAIN ══════════════ -->
+  <main class="main-content">
+
+    <!-- ═══════════════════════════════════════════
+         TAB 1 — SOCIOS
+    ═══════════════════════════════════════════ -->
+    <section class="tab-panel active" id="panel-socios">
+      <div class="panel-top">
+        <div class="panel-heading">
+          <h1 class="panel-title">Socios</h1>
+          <p class="panel-desc">Aportes de capital, gastos pagados por socios y retiros.</p>
+        </div>
+        <button class="btn-primary" id="btnNuevoSocio">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          Nuevo Movimiento
+        </button>
+      </div>
+
+      <!-- KPI Strip -->
+      <div class="kpi-strip" id="kpiSocios">
+        <div class="kpi-card">
+          <span class="kpi-label">Total Aportes</span>
+          <span class="kpi-value accent" id="kpi-aportes">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Total Retiros</span>
+          <span class="kpi-value danger" id="kpi-retiros">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Gastos x Socio</span>
+          <span class="kpi-value warn" id="kpi-gsocio">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Saldo Capital</span>
+          <span class="kpi-value success" id="kpi-capital">$0</span>
+        </div>
+      </div>
+
+      <div class="two-col-layout">
+        <!-- Formulario socios -->
+        <div class="card form-card" id="formSocioWrap">
+          <div class="card-header">
+            <span class="card-title">Registrar Movimiento</span>
+          </div>
+          <div class="card-body">
+            <div class="field-group">
+              <label class="field-label">Tipo de movimiento</label>
+              <select class="field-select" id="tipoSocio">
+                <option value="">— Seleccionar —</option>
+                <option value="aporte">Aporte de Capital</option>
+                <option value="gasto_socio">Gasto pagado por Socio (reembolso)</option>
+                <option value="inversion">Inversión del Socio</option>
+                <option value="retiro">Retiro / Distribución de Utilidades</option>
+                <option value="prestamo_socio">Préstamo del Socio a Empresa</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Socio</label>
+              <select class="field-select" id="socioNombre">
+                <option value="">— Seleccionar socio —</option>
+                <option value="socio1">Socio 1</option>
+                <option value="socio2">Socio 2</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <div class="field-group">
+                <label class="field-label">Fecha</label>
+                <input type="date" class="field-input" id="fechaSocio" />
+              </div>
+              <div class="field-group">
+                <label class="field-label">Valor ($)</label>
+                <input type="number" class="field-input" id="valorSocio" placeholder="0" min="0" />
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Descripción / Concepto</label>
+              <input type="text" class="field-input" id="descSocio" placeholder="Ej: Aporte mes de agosto" />
+            </div>
+            <div class="field-group">
+              <label class="field-label">Soporte (referencia)</label>
+              <input type="text" class="field-input" id="soporteSocio"
+                placeholder="Nro. consignación, recibo, factura…" />
+            </div>
+            <button class="btn-primary full" id="btnGuardarSocio">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
+              </svg>
+              Guardar Registro
+            </button>
+          </div>
+        </div>
+
+        <!-- Tabla socios -->
+        <div class="card table-card">
+          <div class="card-header">
+            <span class="card-title">Historial de Movimientos</span>
+            <span class="card-count" id="countSocios">0 registros</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="tablaSocios">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Socio</th>
+                  <th>Tipo</th>
+                  <th>Descripción</th>
+                  <th class="text-right">Valor</th>
+                  <th>Asiento</th>
+                </tr>
+              </thead>
+              <tbody id="bodySocios">
+                <tr>
+                  <td colspan="6" class="empty-row">Sin registros aún.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Asiento generado socios -->
+      <div class="card asiento-display hidden" id="asientoSocios">
+        <div class="card-header">
+          <span class="card-title">Asiento Contable Generado</span>
+          <span class="asiento-comprobante" id="compSocios"></span>
+        </div>
+        <div class="card-body" id="asientoBodySocios"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════
+         TAB 2 — CLIENTES · VENTAS
+    ═══════════════════════════════════════════ -->
+    <section class="tab-panel" id="panel-clientes">
+      <div class="panel-top">
+        <div class="panel-heading">
+          <h1 class="panel-title">Clientes · Ventas</h1>
+          <p class="panel-desc">Facturación de servicios logísticos, cartera y cobros recibidos.</p>
+        </div>
+        <button class="btn-primary" id="btnNuevaVenta">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          Registrar Venta
+        </button>
+      </div>
+
+      <div class="kpi-strip">
+        <div class="kpi-card">
+          <span class="kpi-label">Total Facturado</span>
+          <span class="kpi-value accent" id="kpi-facturado">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Total Cobrado</span>
+          <span class="kpi-value success" id="kpi-cobrado">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Cartera Pendiente</span>
+          <span class="kpi-value warn" id="kpi-cartera">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Clientes Activos</span>
+          <span class="kpi-value" id="kpi-clientes-count">0</span>
+        </div>
+      </div>
+
+      <div class="two-col-layout">
+        <div class="card form-card">
+          <div class="card-header">
+            <span class="card-title">Nuevo Movimiento</span>
+          </div>
+          <div class="card-body">
+            <div class="field-group">
+              <label class="field-label">Tipo</label>
+              <select class="field-select" id="tipoVenta">
+                <option value="">— Seleccionar —</option>
+                <option value="factura">Factura de Venta (Servicio Logístico)</option>
+                <option value="cobro">Cobro / Recaudo de Cartera</option>
+                <option value="nota_credito">Nota Crédito</option>
+                <option value="anticipo_cliente">Anticipo de Cliente</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Cliente</label>
+              <input type="text" class="field-input" id="clienteNombre"
+                placeholder="Nombre o razón social del cliente" />
+            </div>
+            <div class="field-group">
+              <label class="field-label">NIT / CC Cliente</label>
+              <input type="text" class="field-input" id="clienteNit" placeholder="000.000.000-0" />
+            </div>
+            <div class="field-row">
+              <div class="field-group">
+                <label class="field-label">Fecha</label>
+                <input type="date" class="field-input" id="fechaVenta" />
+              </div>
+              <div class="field-group">
+                <label class="field-label">Vencimiento</label>
+                <input type="date" class="field-input" id="vencVenta" />
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field-group">
+                <label class="field-label">Valor Base ($)</label>
+                <input type="number" class="field-input" id="valorVenta" placeholder="0" min="0"
+                  oninput="calcularIva()" />
+              </div>
+              <div class="field-group">
+                <label class="field-label">IVA (%)</label>
+                <select class="field-select" id="ivaVenta" onchange="calcularIva()">
+                  <option value="0">0% – Excluido/Exento</option>
+                  <option value="19">19% – Tarifa general</option>
+                  <option value="5">5% – Tarifa diferencial</option>
+                </select>
+              </div>
+            </div>
+            <div class="iva-preview hidden" id="ivaPreview">
+              <span class="iva-row"><span>IVA Generado:</span><span id="ivaAmt" class="mono">$0</span></span>
+              <span class="iva-row total"><span>Total Factura:</span><span id="totalFactura"
+                  class="mono accent">$0</span></span>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Descripción del servicio</label>
+              <input type="text" class="field-input" id="descVenta"
+                placeholder="Ej: Servicio de domicilios – sem. 32" />
+            </div>
+            <button class="btn-primary full" id="btnGuardarVenta">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
+              </svg>
+              Guardar Registro
+            </button>
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="card-header">
+            <span class="card-title">Cartera y Movimientos</span>
+            <span class="card-count" id="countVentas">0 registros</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="tablaVentas">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Cliente</th>
+                  <th>Tipo</th>
+                  <th class="text-right">Base</th>
+                  <th class="text-right">IVA</th>
+                  <th class="text-right">Total</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody id="bodyVentas">
+                <tr>
+                  <td colspan="7" class="empty-row">Sin registros aún.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card asiento-display hidden" id="asientoVentas">
+        <div class="card-header">
+          <span class="card-title">Asiento Contable Generado</span>
+          <span class="asiento-comprobante" id="compVentas"></span>
+        </div>
+        <div class="card-body" id="asientoBodyVentas"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════
+         TAB 3 — TRABAJADORES · NÓMINA OPERATIVA
+    ═══════════════════════════════════════════ -->
+    <section class="tab-panel" id="panel-nomina">
+      <div class="panel-top">
+        <div class="panel-heading">
+          <h1 class="panel-title">Trabajadores · Nómina Operativa</h1>
+          <p class="panel-desc">4 domiciliarios con moto propia. Rodamiento <strong>no salarial</strong>. Gestión de
+            descuentos y prestaciones.</p>
+        </div>
+        <button class="btn-primary" id="btnLiquidarPeriodo">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+            <polyline points="22 4 12 14.01 9 11.01" />
+          </svg>
+          Liquidar Período
+        </button>
+      </div>
+
+      <!-- Parámetros legales -->
+      <div class="card params-card">
+        <div class="card-header">
+          <span class="card-title">Parámetros Legales 2026</span>
+          <span class="badge-note">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            Rodamiento NO hace base para prestaciones
+          </span>
+        </div>
+        <div class="card-body params-body">
+          <div class="param-item">
+            <label class="field-label">SMLV 2026</label>
+            <input type="number" class="field-input mono" id="smlv" value="1423500" oninput="refreshNomina()" />
+          </div>
+          <div class="param-item">
+            <label class="field-label">Aux. Transporte</label>
+            <input type="number" class="field-input mono" id="auxTransporte" value="200000" oninput="refreshNomina()" />
+          </div>
+          <div class="param-item">
+            <label class="field-label">
+              Aux. Rodamiento
+              <span class="label-note">Art. 128 CST</span>
+            </label>
+            <input type="number" class="field-input mono accent-border" id="auxRodamiento" value="300000"
+              oninput="refreshNomina()" />
+          </div>
+          <div class="param-item">
+            <label class="field-label">Días del período</label>
+            <input type="number" class="field-input mono" id="diasPeriodo" value="30" min="1" max="30"
+              oninput="refreshNomina()" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabla de nómina -->
+      <div class="card table-card nomina-card">
+        <div class="card-header">
+          <span class="card-title">Liquidación por Domiciliario</span>
+          <button class="btn-ghost-sm" id="btnAgregarDom">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Agregar
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table nomina-table" id="tablaNomina">
+            <thead>
+              <tr>
+                <th>Domiciliario</th>
+                <th class="text-center">Días</th>
+                <th class="text-right">Salario</th>
+                <th class="text-right">Aux. Transp.</th>
+                <th class="text-right accent-col">Base Prest.</th>
+                <th class="text-right warn-col">Rodamiento</th>
+                <th class="text-right">Deducciones</th>
+                <th class="text-right success-col">Neto</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="bodyNomina"></tbody>
+            <tfoot id="footNomina"></tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- Provisiones strip -->
+      <div class="provisiones-strip" id="provisionesStrip"></div>
+
+      <!-- Panel registrar movimiento domiciliario -->
+      <div class="card form-card">
+        <div class="card-header">
+          <span class="card-title">Registrar Movimiento de Domiciliario</span>
+          <span class="badge-note warn">Las multas y repuestos van a CxC — NO como gasto</span>
+        </div>
+        <div class="card-body">
+          <div class="field-row">
+            <div class="field-group">
+              <label class="field-label">Tipo de movimiento</label>
+              <select class="field-select" id="tipoMovDom">
+                <option value="">— Seleccionar —</option>
+                <optgroup label="✅ Gasto de Empresa">
+                  <option value="dotacion">Dotación (casco, impermeable, uniforme)</option>
+                  <option value="poliza">Póliza de seguro (choque / mercancía)</option>
+                </optgroup>
+                <optgroup label="⚠️ Cuenta por Cobrar al Trabajador">
+                  <option value="repuesto">Repuesto / Mantenimiento / Gasolina</option>
+                  <option value="multa">Multa de tránsito</option>
+                  <option value="prestamo">Préstamo / Anticipo</option>
+                </optgroup>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Domiciliario</label>
+              <select class="field-select" id="domSel"></select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-group">
+              <label class="field-label">Fecha</label>
+              <input type="date" class="field-input" id="fechaMovDom" />
+            </div>
+            <div class="field-group">
+              <label class="field-label">Valor ($)</label>
+              <input type="number" class="field-input" id="valorMovDom" placeholder="0" min="0" />
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-group">
+              <label class="field-label">Descripción</label>
+              <input type="text" class="field-input" id="descMovDom" placeholder="Ej: Casco talla M, multa SEI-789…" />
+            </div>
+            <div class="field-group">
+              <label class="field-label">Proveedor</label>
+              <input type="text" class="field-input" id="provMovDom" placeholder="Nombre del proveedor / aseguradora" />
+            </div>
+          </div>
+          <div class="field-row hidden" id="polizaDates">
+            <div class="field-group">
+              <label class="field-label">Póliza vigencia desde</label>
+              <input type="date" class="field-input" id="polizaDesde" />
+            </div>
+            <div class="field-group">
+              <label class="field-label">Póliza vigencia hasta</label>
+              <input type="date" class="field-input" id="polizaHasta" />
+            </div>
+          </div>
+          <button class="btn-primary" id="btnProcesarMovDom">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+              <polyline points="13 2 13 9 20 9" />
+            </svg>
+            Procesar y Generar Asiento
+          </button>
+        </div>
+      </div>
+
+      <!-- Alerta fiscal + asiento domiciliarios -->
+      <div id="alertaDomWrapper" class="hidden">
+        <div class="alerta-box" id="alertaDom"></div>
+      </div>
+      <div class="card asiento-display hidden" id="asientoDom">
+        <div class="card-header">
+          <span class="card-title">Asiento Contable</span>
+          <span class="asiento-comprobante" id="compDom"></span>
+        </div>
+        <div class="card-body" id="asientoBodyDom"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════
+         TAB 4 — OPERACIÓN · PROVEEDORES
+    ═══════════════════════════════════════════ -->
+    <section class="tab-panel" id="panel-operacion">
+      <div class="panel-top">
+        <div class="panel-heading">
+          <h1 class="panel-title">Operación · Proveedores</h1>
+          <p class="panel-desc">Gastos directos de la empresa: dotación, pólizas, honorarios y otros costos operativos.
+          </p>
+        </div>
+      </div>
+
+      <div class="kpi-strip">
+        <div class="kpi-card">
+          <span class="kpi-label">Gastos del Período</span>
+          <span class="kpi-value danger" id="kpi-gastos-op">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Dotación</span>
+          <span class="kpi-value" id="kpi-dotacion">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Pólizas / Seguros</span>
+          <span class="kpi-value" id="kpi-polizas">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Otros Gastos</span>
+          <span class="kpi-value" id="kpi-otros-op">$0</span>
+        </div>
+      </div>
+
+      <div class="two-col-layout">
+        <div class="card form-card">
+          <div class="card-header">
+            <span class="card-title">Registrar Gasto / Compra</span>
+          </div>
+          <div class="card-body">
+            <div class="field-group">
+              <label class="field-label">Categoría del gasto</label>
+              <select class="field-select" id="catGasto">
+                <option value="">— Seleccionar —</option>
+                <option value="dotacion">Dotación obligatoria (EPP)</option>
+                <option value="poliza">Póliza de seguro</option>
+                <option value="honorarios">Honorarios / Servicios profesionales</option>
+                <option value="arriendo">Arriendo / Administración</option>
+                <option value="servicios">Servicios públicos</option>
+                <option value="papeleria">Papelería / Útiles de oficina</option>
+                <option value="publicidad">Publicidad y mercadeo</option>
+                <option value="mantenimiento">Mantenimiento equipo empresa</option>
+                <option value="otros">Otros gastos operativos</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Proveedor / Tercero</label>
+              <input type="text" class="field-input" id="provOp" placeholder="Nombre o razón social" />
+            </div>
+            <div class="field-group">
+              <label class="field-label">NIT Proveedor</label>
+              <input type="text" class="field-input" id="nitProv" placeholder="000.000.000-0" />
+            </div>
+            <div class="field-row">
+              <div class="field-group">
+                <label class="field-label">Fecha</label>
+                <input type="date" class="field-input" id="fechaOp" />
+              </div>
+              <div class="field-group">
+                <label class="field-label">Nro. Factura / Doc.</label>
+                <input type="text" class="field-input" id="nroFactOp" placeholder="FV-0001" />
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field-group">
+                <label class="field-label">Valor ($)</label>
+                <input type="number" class="field-input" id="valorOp" placeholder="0" oninput="calcReteFuente()" />
+              </div>
+              <div class="field-group">
+                <label class="field-label">Retención en la Fuente</label>
+                <select class="field-select" id="reteFuente" onchange="calcReteFuente()">
+                  <option value="0">No aplica</option>
+                  <option value="3.5">3.5% – Compras</option>
+                  <option value="4">4% – Honorarios persona jurídica</option>
+                  <option value="11">11% – Honorarios persona natural</option>
+                  <option value="6">6% – Servicios</option>
+                  <option value="2">2% – Servicios de aseo/vigilancia</option>
+                </select>
+              </div>
+            </div>
+            <div class="iva-preview hidden" id="retePreview">
+              <span class="iva-row"><span>Retención calculada:</span><span id="reteAmt"
+                  class="mono warn">$0</span></span>
+              <span class="iva-row total"><span>Neto a pagar:</span><span id="netoOp"
+                  class="mono accent">$0</span></span>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Descripción / Detalle</label>
+              <input type="text" class="field-input" id="descOp" placeholder="Descripción del gasto" />
+            </div>
+            <button class="btn-primary full" id="btnGuardarOp">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
+              </svg>
+              Guardar Registro
+            </button>
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="card-header">
+            <span class="card-title">Gastos Registrados</span>
+            <span class="card-count" id="countOp">0 registros</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="tablaOp">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Proveedor</th>
+                  <th>Categoría</th>
+                  <th class="text-right">Valor</th>
+                  <th class="text-right warn-col">Rte. Fuente</th>
+                  <th class="text-right">Neto</th>
+                  <th>Cpta.</th>
+                </tr>
+              </thead>
+              <tbody id="bodyOp">
+                <tr>
+                  <td colspan="7" class="empty-row">Sin registros aún.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card asiento-display hidden" id="asientoOp">
+        <div class="card-header">
+          <span class="card-title">Asiento Contable Generado</span>
+          <span class="asiento-comprobante" id="compOp"></span>
+        </div>
+        <div class="card-body" id="asientoBodyOp"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════
+         TAB 5 — IMPUESTOS
+    ═══════════════════════════════════════════ -->
+    <section class="tab-panel" id="panel-impuestos">
+      <div class="panel-top">
+        <div class="panel-heading">
+          <h1 class="panel-title">Impuestos</h1>
+          <p class="panel-desc">Control de retenciones practicadas, IVA, ICA y declaraciones pendientes.</p>
+        </div>
+      </div>
+
+      <!-- Alerta declaraciones -->
+      <div class="alerta-box alerta-warn" id="alertaDeclaraciones">
+        <svg class="alerta-icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          <line x1="12" y1="9" x2="12" y2="13" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+        <div>
+          <div class="alerta-titulo">Recordatorio: Obligaciones Fiscales</div>
+          <div class="alerta-texto">Las <strong>multas de tránsito</strong> NUNCA son deducibles (Art. 89 E.T.). Las
+            retenciones practicadas deben declararse y pagarse en los plazos del calendario tributario DIAN. El ICA se
+            declara según calendario municipal.</div>
+        </div>
+      </div>
+
+      <div class="impuestos-grid">
+        <!-- Retención en la fuente -->
+        <div class="card tax-card">
+          <div class="card-header">
+            <span class="card-title">Retención en la Fuente</span>
+            <span class="tax-periodo" id="taxPeriodo">Ago 2026</span>
+          </div>
+          <div class="card-body tax-body">
+            <div class="tax-row">
+              <span class="tax-label">Retenido a proveedores (3.5%)</span>
+              <span class="tax-value mono" id="rte-compras">$0</span>
+            </div>
+            <div class="tax-row">
+              <span class="tax-label">Retenido honorarios J. (4%)</span>
+              <span class="tax-value mono" id="rte-hon-j">$0</span>
+            </div>
+            <div class="tax-row">
+              <span class="tax-label">Retenido honorarios N. (11%)</span>
+              <span class="tax-value mono" id="rte-hon-n">$0</span>
+            </div>
+            <div class="tax-row">
+              <span class="tax-label">Retenido servicios (6%)</span>
+              <span class="tax-value mono" id="rte-serv">$0</span>
+            </div>
+            <div class="tax-row total">
+              <span class="tax-label">TOTAL RETENCIONES A DECLARAR</span>
+              <span class="tax-value mono accent" id="rte-total">$0</span>
+            </div>
+            <div class="tax-status">
+              <span class="status-dot pending"></span>
+              <span class="status-text" id="rteStatus">Pendiente de declarar</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- IVA Generado -->
+        <div class="card tax-card">
+          <div class="card-header">
+            <span class="card-title">IVA Generado (Ventas)</span>
+            <span class="tax-periodo">Bimestre actual</span>
+          </div>
+          <div class="card-body tax-body">
+            <div class="tax-row">
+              <span class="tax-label">IVA facturado (19%)</span>
+              <span class="tax-value mono" id="iva19">$0</span>
+            </div>
+            <div class="tax-row">
+              <span class="tax-label">IVA facturado (5%)</span>
+              <span class="tax-value mono" id="iva5">$0</span>
+            </div>
+            <div class="tax-row">
+              <span class="tax-label">Excluidos / Exentos</span>
+              <span class="tax-value mono muted" id="ivaExcluido">$0</span>
+            </div>
+            <div class="tax-row total">
+              <span class="tax-label">TOTAL IVA A DECLARAR</span>
+              <span class="tax-value mono accent" id="ivaTotal">$0</span>
+            </div>
+            <div class="tax-status">
+              <span class="status-dot pending"></span>
+              <span class="status-text">Pendiente de declarar</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ICA -->
+        <div class="card tax-card">
+          <div class="card-header">
+            <span class="card-title">ICA — Industria y Comercio</span>
+            <span class="tax-periodo">Anual</span>
+          </div>
+          <div class="card-body tax-body">
+            <div class="tax-row">
+              <span class="tax-label">Base gravable (ingresos brutos)</span>
+              <span class="tax-value mono" id="icaBase">$0</span>
+            </div>
+            <div class="tax-row">
+              <span class="tax-label">Tarifa aplicable (milésimas)</span>
+              <span class="tax-value mono">
+                <input type="number" class="tax-input" id="icaTarifa" value="6.9" step="0.1" placeholder="6.9"
+                  oninput="calcICA()" />
+                <span style="color:var(--text-3)">‰</span>
+              </span>
+            </div>
+            <div class="tax-row total">
+              <span class="tax-label">ICA ESTIMADO</span>
+              <span class="tax-value mono accent" id="icaTotal">$0</span>
+            </div>
+            <div class="tax-status">
+              <span class="status-dot pending"></span>
+              <span class="status-text">Estimación provisional</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- No deducibles -->
+        <div class="card tax-card">
+          <div class="card-header">
+            <span class="card-title">Gastos No Deducibles</span>
+            <span class="badge-alert">⚖️ Art. 89 E.T.</span>
+          </div>
+          <div class="card-body tax-body">
+            <div class="tax-row">
+              <span class="tax-label">Multas de tránsito pagadas</span>
+              <span class="tax-value mono danger" id="nd-multas">$0</span>
+            </div>
+            <div class="tax-row">
+              <span class="tax-label">Sanciones e intereses</span>
+              <span class="tax-value mono danger" id="nd-sanciones">$0</span>
+            </div>
+            <div class="tax-row total">
+              <span class="tax-label">TOTAL NO DEDUCIBLE</span>
+              <span class="tax-value mono danger" id="nd-total">$0</span>
+            </div>
+            <p class="tax-disclaimer">Estos valores no deben incluirse en la declaración de renta como gasto. Ya están
+              registrados como Cuentas por Cobrar al trabajador.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Libro de movimientos global -->
+      <div class="card table-card" style="margin-top:24px">
+        <div class="card-header">
+          <span class="card-title">Libro General de Movimientos</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select class="field-select" style="font-size:12px;padding:6px 28px 6px 10px;width:auto" id="filtroLibro">
+              <option value="">Todos</option>
+              <option value="gasto">Gasto empresa</option>
+              <option value="cxc">Cuenta por cobrar</option>
+              <option value="nomina">Nómina</option>
+              <option value="venta">Venta</option>
+              <option value="socio">Socio</option>
+            </select>
+            <button class="btn-ghost-sm" id="btnExportCSV">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Exportar CSV
+            </button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="tablaLibro">
+            <thead>
+              <tr>
+                <th>Comprobante</th>
+                <th>Fecha</th>
+                <th>Módulo</th>
+                <th>Descripción</th>
+                <th class="text-right">Débito</th>
+                <th class="text-right">Crédito</th>
+              </tr>
+            </thead>
+            <tbody id="bodyLibro">
+              <tr>
+                <td colspan="6" class="empty-row">Sin movimientos registrados.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ══════ MODAL NUEVO DOMICILIARIO ══════ -->
+  <div class="modal-bg hidden" id="modalBg">
+    <div class="modal-box">
+      <div class="modal-hdr">
+        <span class="modal-title" id="modalTitle">Agregar Domiciliario</span>
+        <button class="modal-close-btn" id="modalClose">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field-group">
+            <label class="field-label">Nombre completo</label>
+            <input type="text" class="field-input" id="mNombre" placeholder="Nombre Apellido" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">N° Documento</label>
+            <input type="text" class="field-input" id="mDocumento" placeholder="CC 000.000" />
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label class="field-label">Fecha ingreso</label>
+            <input type="date" class="field-input" id="mIngreso" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Placa moto</label>
+            <input type="text" class="field-input" id="mPlaca" placeholder="ABC-123" />
+          </div>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Teléfono</label>
+          <input type="tel" class="field-input" id="mTelefono" placeholder="3XX XXX XXXX" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" id="btnCancelModal">Cancelar</button>
+        <button class="btn-primary" id="btnSaveModal">Guardar Domiciliario</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════ MODAL DETALLE LIQUIDACIÓN ══════ -->
+  <div class="modal-bg hidden" id="modalLiqBg">
+    <div class="modal-box modal-wide">
+      <div class="modal-hdr">
+        <span class="modal-title" id="liqTitle">Detalle de Liquidación</span>
+        <button class="modal-close-btn" id="liqClose">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body" id="liqBody"></div>
+      <div class="modal-footer">
+        <button class="btn-ghost" id="liqCancel">Cerrar</button>
+        <button class="btn-primary" id="liqConfirm">Confirmar y Registrar Asiento</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
