@@ -149,11 +149,12 @@ function buildAsiento({ comp, fecha, modulo, chip, nombre, desc, lineas }) {
 
 // ── Microcopy dinámico por tipo de movimiento (Apple HIG) ────────────────
 const TIPO_SOCIO_HINTS = {
-  aporte: 'Inyección formal de dinero que aumenta el patrimonio de la empresa. No representa una deuda a devolver a corto plazo.',
-  gasto_socio: 'El socio pagó con su dinero personal un gasto de la empresa y la empresa le reembolsará exactamente ese valor.',
+  capital: 'Inyección formal de dinero que aumenta el patrimonio de la empresa. No representa una deuda a devolver a corto plazo.',
+  gasto_pagado_socio: 'El socio pagó con su dinero personal un gasto de la empresa y la empresa le reembolsará exactamente ese valor.',
   inversion: 'Fondos o activos destinados a proyectos o equipamiento clave, pendientes por formalizar en patrimonio.',
-  retiro: 'Pago de ganancias o dividendos acumulados generados por la empresa hacia el socio.',
-  prestamo_socio: 'Préstamo de dinero temporal a la empresa que genera una obligación de devolución al socio a corto/mediano plazo.',
+  distribucion: 'Pago de ganancias o dividendos acumulados generados por la empresa hacia el socio.',
+  prestamo_de_socio: 'Préstamo de dinero temporal a la empresa que genera una obligación de devolución al socio a corto/mediano plazo.',
+  prestamo_a_socio: 'Dinero entregado al socio como préstamo, generando una cuenta por cobrar a favor de la empresa.',
 };
 
 function asientoSocio(tipo, socio, valor, desc, fecha) {
@@ -164,7 +165,7 @@ function asientoSocio(tipo, socio, valor, desc, fecha) {
   switch (tipo) {
     // ── NIIF Pymes: Aporte de Capital (Sección 22.7) ───────────────────
     // Débito: 1110 Bancos | Crédito: 3105 Capital Suscrito y Pagado
-    case 'aporte':
+    case 'capital':
       lineas = [
         { cuenta: '1110', desc: `Aporte de capital – ${socio.nombre}`, debito: valor, credito: 0 },
         { cuenta: '3105', desc: `Capital suscrito y pagado – ${socio.nombre}`, debito: 0, credito: valor },
@@ -172,7 +173,7 @@ function asientoSocio(tipo, socio, valor, desc, fecha) {
 
     // ── Gasto pagado por Socio (reembolso) ─────────────────────────
     // Débito: 5199 Gasto Operativo | Crédito: 2390 CxP Socios (Pasivo)
-    case 'gasto_socio':
+    case 'gasto_pagado_socio':
       lineas = [
         { cuenta: '5199', desc: `Gasto operativo pagado por socio – ${desc || socio.nombre}`, debito: valor, credito: 0 },
         { cuenta: '2390', desc: `Reembolso pendiente a ${socio.nombre} (CxP Socios)`, debito: 0, credito: valor },
@@ -188,7 +189,7 @@ function asientoSocio(tipo, socio, valor, desc, fecha) {
 
     // ── Retiro / Distribución de Utilidades (NIIF Pymes § 22.18) ───────
     // Débito: 3705 Utilidades Acumuladas | Crédito: 1110 Bancos
-    case 'retiro':
+    case 'distribucion':
       chip = 'chip-cxc';
       lineas = [
         { cuenta: '3705', desc: `Distribución de utilidades – ${socio.nombre}`, debito: valor, credito: 0 },
@@ -197,10 +198,19 @@ function asientoSocio(tipo, socio, valor, desc, fecha) {
 
     // ── Préstamo del Socio a Empresa (Art. 35 E.T.) ─────────────────
     // Débito: 1110 Bancos | Crédito: 2396 Préstamos Socios (Pasivo Financiero)
-    case 'prestamo_socio':
+    case 'prestamo_de_socio':
       lineas = [
         { cuenta: '1110', desc: `Préstamo recibido de socio – ${socio.nombre}`, debito: valor, credito: 0 },
         { cuenta: '2396', desc: `Pasivo financiero – Préstamo ${socio.nombre}`, debito: 0, credito: valor },
+      ]; break;
+
+    // ── Préstamo de Empresa a Socio ─────────────────────────────────
+    // Débito: 1325 CxC Socios | Crédito: 1110 Bancos
+    case 'prestamo_a_socio':
+      chip = 'chip-cxc';
+      lineas = [
+        { cuenta: '1325', desc: `Préstamo otorgado a socio – ${socio.nombre}`, debito: valor, credito: 0 },
+        { cuenta: '1110', desc: `Desembolso préstamo a socio`, debito: 0, credito: valor },
       ]; break;
   }
   const a = buildAsiento({ comp, fecha, modulo: 'socio', chip, nombre: socio.nombre, desc: desc || tipo, lineas });
@@ -826,7 +836,7 @@ function mostrarAlertaFiscalSocio(tipo, soporte) {
   if (!banner) return;
 
   const ALERTAS = {
-    aporte: [
+    capital: [
       {
         nivel: 'info',
         icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
@@ -842,7 +852,7 @@ function mostrarAlertaFiscalSocio(tipo, soporte) {
           : `Soporte registrado: <strong>${soporte}</strong>. Verifica que sea el Acta de Junta de Socios correspondiente.`,
       },
     ],
-    gasto_socio: [
+    gasto_pagado_socio: [
       {
         nivel: 'info',
         icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`,
@@ -870,7 +880,7 @@ function mostrarAlertaFiscalSocio(tipo, soporte) {
         texto: 'Este movimiento <strong>debe formalizarse</strong> mediante Acta de Junta de Socios o escritura pública antes del cierre contable.',
       },
     ],
-    retiro: [
+    distribucion: [
       {
         nivel: 'info',
         icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>`,
@@ -884,7 +894,7 @@ function mostrarAlertaFiscalSocio(tipo, soporte) {
         texto: 'Verificar aplicación de <strong>Retención en la Fuente sobre dividendos</strong> según <em>Art. 242 del Estatuto Tributario</em>. Dividendos gravados: tarifa del 10 %. Informar a revisor fiscal antes del pago.',
       },
     ],
-    prestamo_socio: [
+    prestamo_de_socio: [
       {
         nivel: 'info',
         icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>`,
@@ -898,6 +908,14 @@ function mostrarAlertaFiscalSocio(tipo, soporte) {
         texto: 'Los préstamos de socios a la empresa <strong>generan intereses presuntivos</strong> según el <em>Art. 35 del Estatuto Tributario</em>. Tasa presuntiva DTF vigente. Controlar plazos y documentar condiciones.',
       },
     ],
+    prestamo_a_socio: [
+      {
+        nivel: 'info',
+        icon: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>`,
+        titulo: 'Cuenta 1325 · Cuenta por Cobrar a Socios',
+        texto: 'Registrado como <strong>activo</strong>. La empresa prestó dinero al socio, generando una obligación de pago a favor de la empresa.',
+      }
+    ]
   };
 
   const items = ALERTAS[tipo];
@@ -989,17 +1007,38 @@ document.addEventListener('DOMContentLoaded', () => {
     const fecha = document.getElementById('fechaSocio').value;
     const modalidad = document.getElementById('modalidadSocio').value;
 
+    if (tipo === 'capital' && !modalidad) { alert('Selecciona la modalidad del aporte de capital.'); return; }
+
     if (!tipo || !socioId || valor <= 0) { alert('Completa tipo, socio y valor.'); return; }
+
+    let categoriaContable = '';
+    switch (tipo) {
+      case 'capital':
+      case 'distribucion':
+      case 'inversion':
+        categoriaContable = 'Patrimonio';
+        break;
+      case 'prestamo_de_socio':
+      case 'gasto_pagado_socio':
+        categoriaContable = 'Pasivo';
+        break;
+      case 'prestamo_a_socio':
+        categoriaContable = 'Activo';
+        break;
+    }
 
     const socio = S.socios.find(s => s.id === socioId) || { id: 'ext', nombre: socioId };
     const a = asientoSocio(tipo, socio, valor, desc, fecha);
+    
+    a.clasificacion = categoriaContable;
 
     const tipoLabels = {
-      aporte: 'Aporte Capital',
-      gasto_socio: 'Gasto x Socio',
-      inversion: 'Inversión Socio',
-      retiro: 'Retiro / Dividendos',
-      prestamo_socio: 'Préstamo Socio',
+      capital: 'Aporte de Capital',
+      gasto_pagado_socio: 'Gasto pagado por Socio',
+      inversion: 'Inversión socio',
+      distribucion: 'Retiro / Dividendos',
+      prestamo_de_socio: 'Préstamo del Socio',
+      prestamo_a_socio: 'Préstamo al Socio',
     };
 
     addTableRow('bodySocios', `
@@ -1049,7 +1088,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const total = valor + iva;
     const a = asientoVenta(tipo, cliente, valor, ivaPct, desc, fecha);
 
-    const tipoLabels = { factura: 'Factura Venta', cobro: 'Cobro Cartera', nota_credito: 'Nota Crédito', anticipo_cliente: 'Anticipo' };
+    const tipoLabels = { factura: 'Factura venta', cobro: 'Cobro cartera', nota_credito: 'Nota crédito', anticipo_cliente: 'Anticipo' };
     const estado = tipo === 'cobro' ? '<span class="chip chip-ok">Pagado</span>' : '<span class="chip chip-pendiente">Pendiente</span>';
 
     addTableRow('bodyVentas', `
@@ -1118,7 +1157,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ══ MODAL DOMICILIARIO ══
   document.getElementById('btnAgregarDom')?.addEventListener('click', () => {
-    document.getElementById('modalTitle').textContent = 'Agregar Domiciliario';
+    document.getElementById('modalTitle').textContent = 'Agregar domiciliario';
     document.getElementById('modalBg').classList.remove('hidden');
   });
   document.getElementById('modalClose')?.addEventListener('click', () => document.getElementById('modalBg').classList.add('hidden'));
