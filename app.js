@@ -5,6 +5,8 @@
 
 'use strict';
 
+import { supabase } from './supabase.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. PUC — Plan Único de Cuentas (relevantes para el módulo)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -12,8 +14,9 @@ const PUC = {
   '1105': 'Caja',
   '1110': 'Bancos',
   '1305': 'Clientes (Deudores comerciales)',
+  '1325': 'Cuentas por cobrar a socios',
   '1455': 'Cuentas por Cobrar – Empleados',
-  '1620': 'Seguros pagados por anticipado',
+  '1705': 'Seguros pagados por anticipado',
   '2305': 'Nómina por pagar',
   '2370': 'Retención en la fuente por pagar',
   '2380': 'Aportes Seguridad Social por pagar',
@@ -42,7 +45,7 @@ const PUC = {
   '5150': 'Gastos generales – pólizas y seguros',
   '5195': 'Gastos generales – honorarios',
   '5199': 'Gastos generales – otros',
-  '5899': 'Gastos no deducibles – multas (Art. 89 E.T.)',
+  '5395': 'Gastos no deducibles – multas (Art. 89 E.T.)',
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -281,7 +284,7 @@ function asientoMovDom(tipo, dom, valor, desc, prov, fecha, polizaDesde, polizaH
       const dias = polizaDesde && polizaHasta
         ? Math.round((new Date(polizaHasta) - new Date(polizaDesde)) / 86400000) : 30;
       const esAnticipado = dias > 30;
-      const cuenta = esAnticipado ? '1620' : '5150';
+      const cuenta = esAnticipado ? '1705' : '5150';
       lineas = [
         { cuenta, desc: `${esAnticipado ? 'Seguro anticipado' : 'Póliza'} – ${desc} – ${dom?.nombre || 'Empresa'}`, debito: valor, credito: 0 },
         { cuenta: '1110', desc: `Pago póliza: ${prov || 'Aseguradora'}`, debito: 0, credito: valor },
@@ -289,7 +292,7 @@ function asientoMovDom(tipo, dom, valor, desc, prov, fecha, polizaDesde, polizaH
       alerta = {
         clase: 'alerta-info', titulo: esAnticipado ? '🔵 Póliza → Gasto pagado por anticipado' : '🔵 Póliza → Gasto del período',
         texto: esAnticipado
-          ? `Vigencia <strong>${dias} días</strong>. Registrado en <strong>1620 – Seguros pagados por anticipado</strong>. Se amortizará mensualmente.`
+          ? `Vigencia <strong>${dias} días</strong>. Registrado en <strong>1705 – Seguros pagados por anticipado</strong>. Se amortizará mensualmente.`
           : `Póliza dentro del período. Registrado en <strong>5150 – Gastos seguros</strong>. Deducible (Art. 107 E.T.).`
       };
       break;
@@ -832,6 +835,183 @@ function exportarCSV() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 11.b PERSISTENCIA SUPABASE — MÓDULO SOCIOS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TIPO_SOCIO_LABELS = {
+  capital: 'Aporte de Capital',
+  gasto_pagado_socio: 'Gasto pagado por Socio',
+  inversion: 'Inversión socio',
+  distribucion: 'Retiro / Dividendos',
+  prestamo_de_socio: 'Préstamo del Socio',
+  prestamo_a_socio: 'Préstamo al Socio',
+};
+
+/** Escapa texto antes de inyectarlo como HTML (los datos vienen de la BD). */
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/** `modulo` en BD (plural) -> convención en memoria que usa el filtro del libro. */
+const MODULO_BD_A_APP = { socios: 'socio', ventas: 'venta', nomina: 'nomina', operacion: 'gasto' };
+
+/** Adapta una fila de la BD (con su join) al formato que espera htmlAsiento(). */
+function asientoDesdeDB(row) {
+  const lineas = (row.asiento_detalles || [])
+    .slice()
+    .sort((x, y) => x.id - y.id)
+    .map(d => ({
+      cuenta: d.cuenta,
+      desc: d.descripcion || '',
+      debito: Number(d.debito) || 0,
+      credito: Number(d.credito) || 0,
+      tipoNormativa: d.tipo_normativa,
+    }));
+
+  return {
+    comp: row.comprobante,
+    fecha: row.fecha,
+    modulo: MODULO_BD_A_APP[row.modulo] || row.modulo,
+    nombre: row.tercero,
+    desc: row.descripcion,
+    lineas,
+    totD: lineas.reduce((acc, l) => acc + l.debito, 0),
+    totC: lineas.reduce((acc, l) => acc + l.credito, 0),
+  };
+}
+
+/**
+ * Guarda el asiento en Supabase: primero la cabecera en `asientos`, recupera
+ * el id generado y con él inserta las líneas en `asiento_detalles`.
+ * Devuelve el id de la cabecera.
+ */
+async function guardarAsientoSocioDB(a, meta) {
+  const { data: cabecera, error: errCab } = await supabase
+    .from('asientos')
+    .insert({
+      comprobante: a.comp,
+      fecha: a.fecha,
+      descripcion: a.desc,
+      modulo: 'socios',
+      tercero: a.nombre,
+      tipo: meta.tipo,
+      modalidad: meta.modalidad || null,
+      clasificacion: meta.clasificacion || null,
+      soporte: meta.soporte || null,
+      valor: meta.valor,
+    })
+    .select('id')
+    .single();
+
+  if (errCab) throw errCab;
+
+  const detalles = a.lineas.map(l => ({
+    asiento_id: cabecera.id,
+    cuenta: l.cuenta,
+    descripcion: l.desc,
+    debito: l.debito,
+    credito: l.credito,
+    tipo_normativa: 'AMBOS',
+  }));
+
+  const { error: errDet } = await supabase.from('asiento_detalles').insert(detalles);
+
+  if (errDet) {
+    // PostgREST no da transacción entre las dos llamadas: si fallan las líneas
+    // hay que borrar la cabecera para no dejar un asiento sin partida doble.
+    await supabase.from('asientos').delete().eq('id', cabecera.id);
+    throw errDet;
+  }
+
+  return cabecera.id;
+}
+
+/**
+ * Alinea el contador de comprobantes con lo que ya existe en la BD para no
+ * chocar con el UNIQUE de `comprobante` tras recargar la página.
+ */
+async function syncSeqComprobante() {
+  const { data, error } = await supabase
+    .from('asientos')
+    .select('comprobante')
+    .order('id', { ascending: false })
+    .limit(1);
+
+  if (error || !data || !data.length) return;
+  const n = parseInt(String(data[0].comprobante).split('-').pop(), 10);
+  if (Number.isFinite(n) && n >= S.seq) S.seq = n + 1;
+}
+
+/**
+ * Renderiza el historial de socios leyendo `asientos` + `asiento_detalles`
+ * mediante JOIN. Cada registro conserva la divulgación progresiva: la fila
+ * muestra el resumen y el <details> despliega el asiento completo.
+ */
+async function renderSocios() {
+  const body = document.getElementById('bodySocios');
+  const countEl = document.getElementById('countSocios');
+  if (!body) return;
+
+  const { data, error } = await supabase
+    .from('asientos')
+    .select(`
+      id, comprobante, fecha, descripcion, modulo, tercero, tipo, modalidad,
+      clasificacion, valor,
+      asiento_detalles ( id, cuenta, descripcion, debito, credito, tipo_normativa )
+    `)
+    .eq('modulo', 'socios')
+    .order('fecha', { ascending: false })
+    .order('id', { ascending: false });
+
+  if (error) {
+    console.error('[Supabase] Error al cargar asientos de socios:', error);
+    body.innerHTML = `<tr><td colspan="7" class="empty-row" style="color:var(--red)">
+      ⚠ No se pudieron cargar los movimientos: ${esc(error.message)}</td></tr>`;
+    if (countEl) countEl.textContent = '— registros';
+    return;
+  }
+
+  if (!data.length) {
+    S.asientosSocios = [];
+    body.innerHTML = `<tr><td colspan="7" class="empty-row">Sin registros aún.</td></tr>`;
+    if (countEl) countEl.textContent = '0 registros';
+    return;
+  }
+
+  // Los KPIs y el libro global siguen leyendo de memoria: se rehidratan aquí
+  // para que no queden en cero tras recargar la página.
+  S.asientosSocios = data.map(asientoDesdeDB).reverse();
+
+  body.innerHTML = data.map(row => {
+    const a = asientoDesdeDB(row);
+    const nLineas = a.lineas.length;
+    return `
+      <tr>
+        <td>${fmtDate(row.fecha)}</td>
+        <td>${esc(row.tercero) || '—'}</td>
+        <td><span class="chip chip-socio">${esc(TIPO_SOCIO_LABELS[row.tipo] || row.tipo || '—')}</span></td>
+        <td style="color:var(--text-2);font-size:12.5px">${esc(row.descripcion) || '—'}</td>
+        <td style="color:var(--text-2);font-size:12.5px">${esc(row.modalidad) || '—'}</td>
+        <td class="text-right mono-cell">${fmt(Number(row.valor) || 0)}</td>
+        <td><span class="mono-cell" style="font-size:11px;color:var(--accent)">${esc(row.comprobante)}</span></td>
+      </tr>
+      <tr>
+        <td colspan="7" style="padding:0 14px 10px">
+          <details>
+            <summary style="cursor:pointer;padding:8px 0;color:var(--text-3);font-size:12px;list-style:none">
+              ▸ Ver detalle del asiento contable · ${nLineas} línea${nLineas !== 1 ? 's' : ''} (Opcional)
+            </summary>
+            ${htmlAsiento(a)}
+          </details>
+        </td>
+      </tr>`;
+  }).join('');
+
+  if (countEl) {
+    countEl.textContent = `${data.length} registro${data.length !== 1 ? 's' : ''}`;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 12. ALERTAS FISCALES / CONTABLES — MÓDULO SOCIOS
 // ─────────────────────────────────────────────────────────────────────────────
 function mostrarAlertaFiscalSocio(tipo, soporte) {
@@ -943,6 +1123,16 @@ function mostrarAlertaFiscalSocio(tipo, soporte) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 12.b EXPOSICIÓN GLOBAL
+// ─────────────────────────────────────────────────────────────────────────────
+// app.js pasó a ser módulo ES (<script type="module">) para poder importar el
+// cliente de Supabase. Dentro de un módulo las funciones ya no son globales,
+// pero los atributos onclick/oninput del HTML las siguen buscando en `window`.
+Object.assign(window, {
+  calcularIva, calcReteFuente, calcICA, refreshNomina, renderNomina, openLiqModal,
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 13. INICIALIZACIÓN Y EVENT LISTENERS
 // ─────────────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -965,6 +1155,15 @@ document.addEventListener('DOMContentLoaded', () => {
   renderNomina();
   renderLibro();
   updateImpuestos();
+
+  // Carga inicial desde Supabase: alinea el consecutivo de comprobantes y
+  // pinta el historial de socios con lo que ya está persistido.
+  (async () => {
+    await syncSeqComprobante();
+    await renderSocios();
+    updateKpiSocios();
+    renderLibro();
+  })();
 
   // ══ NAVEGACIÓN ══
   document.querySelectorAll('.nav-item').forEach(btn => {
@@ -1001,7 +1200,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('tipoSocio')?.focus();
   });
 
-  document.getElementById('btnGuardarSocio')?.addEventListener('click', () => {
+  document.getElementById('btnGuardarSocio')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnGuardarSocio');
     const tipo = document.getElementById('tipoSocio').value;
     const socioId = document.getElementById('socioNombre').value;
     const valor = parseFloat(document.getElementById('valorSocio').value) || 0;
@@ -1035,24 +1235,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     a.clasificacion = categoriaContable;
 
-    const tipoLabels = {
-      capital: 'Aporte de Capital',
-      gasto_pagado_socio: 'Gasto pagado por Socio',
-      inversion: 'Inversión socio',
-      distribucion: 'Retiro / Dividendos',
-      prestamo_de_socio: 'Préstamo del Socio',
-      prestamo_a_socio: 'Préstamo al Socio',
-    };
+    // ── Persistencia en Supabase (cabecera + lineas) ───────────────────────
+    const btnHtml = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
 
-    addTableRow('bodySocios', `
-      <td>${fmtDate(fecha)}</td>
-      <td>${socio.nombre}</td>
-      <td><span class="chip chip-socio">${tipoLabels[tipo] || tipo}</span></td>
-      <td style="color:var(--text-2);font-size:12.5px">${desc || '—'}</td>
-      <td style="color:var(--text-2);font-size:12.5px">${modalidad || '—'}</td>
-      <td class="text-right mono-cell">${fmt(valor)}</td>
-      <td><span class="mono-cell" style="font-size:11px;color:var(--accent)">${a.comp}</span></td>
-    `, 'countSocios');
+    try {
+      await guardarAsientoSocioDB(a, {
+        tipo, modalidad, soporte, valor, clasificacion: categoriaContable,
+      });
+    } catch (err) {
+      console.error('[Supabase] No se pudo guardar el asiento de socio:', err);
+      alert('No se pudo guardar en la base de datos:\n' + (err.message || err));
+      // Deshacer lo que asientoSocio() ya habia dejado en memoria y liberar el
+      // consecutivo, para no perder sincronia con la BD.
+      S.asientosSocios.pop();
+      S.seq--;
+      return;
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = btnHtml; }
+    }
+
+    // La tabla se repinta desde la BD (SELECT con JOIN), no desde memoria.
+    await renderSocios();
 
     showAsiento('asientoSocios', 'compSocios', 'asientoBodySocios', a);
     updateKpiSocios();
