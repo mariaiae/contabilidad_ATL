@@ -1032,7 +1032,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const socio = S.socios.find(s => s.id === socioId) || { id: 'ext', nombre: socioId };
     const a = asientoSocio(tipo, socio, valor, desc, fecha);
-    
+
     a.clasificacion = categoriaContable;
 
     const tipoLabels = {

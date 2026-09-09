@@ -473,11 +473,105 @@ body {
   color: var(--text-1);
 }
 
+/* ── FIELD HINT (Microcopy Apple HIG) ──────────────────────────────── */
+.field-hint {
+  font-size: 12px;
+  color: #a1a1a6;
+  line-height: 1.55;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 2px solid rgba(161, 161, 166, 0.3);
+  border-radius: 0 6px 6px 0;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.field-hint.visible {
+  opacity: 1;
+}
+
+/* ── ALERTA FISCAL BANNER ─────────────────────────────────────────── */
+.alerta-fiscal {
+  border-radius: var(--r-md);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: hintFadeIn 0.2s ease;
+}
+
+@keyframes hintFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.alerta-fiscal-item {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+}
+
+.alerta-fiscal-item.warn {
+  background: rgba(255, 214, 10, 0.06);
+  border: 1px solid rgba(255, 214, 10, 0.20);
+}
+
+.alerta-fiscal-item.danger {
+  background: rgba(255, 69, 58, 0.07);
+  border: 1px solid rgba(255, 69, 58, 0.22);
+}
+
+.alerta-fiscal-item.info {
+  background: rgba(232, 135, 74, 0.07);
+  border: 1px solid rgba(232, 135, 74, 0.22);
+}
+
+.alerta-fiscal-item.success {
+  background: rgba(50, 215, 75, 0.06);
+  border: 1px solid rgba(50, 215, 75, 0.18);
+}
+
+.alerta-fiscal-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.alerta-fiscal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.alerta-fiscal-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.alerta-fiscal-text {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.alerta-fiscal-text strong {
+  color: var(--text-1);
+}
+
 .field-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
+
 
 /* IVA / Retención preview */
 .iva-preview {

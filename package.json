@@ -21,6 +21,10 @@
   },
   "homepage": "https://github.com/mariaiae/contabilidad_ATL#readme",
   "devDependencies": {
+    "supabase": "^2.117.0",
     "vite": "^8.2.1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.116.0"
   }
 }
