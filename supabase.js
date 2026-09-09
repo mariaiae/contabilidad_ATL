@@ -51,7 +51,13 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 }
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: false },
+  auth: {
+    // La sesion debe sobrevivir a recargas y renovarse sola: con RLS cerrada
+    // al rol anon, perderla deja la app sin acceso a ningun dato.
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+  },
 });
 
 export default supabase;

@@ -6,47 +6,19 @@
 'use strict';
 
 import { supabase } from './supabase.js';
+import { sesionActual, iniciarSesion, cerrarSesion, observarSesion, mensajeDeError } from './auth.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. PUC — Plan Único de Cuentas (relevantes para el módulo)
 // ─────────────────────────────────────────────────────────────────────────────
-const PUC = {
-  '1105': 'Caja',
-  '1110': 'Bancos',
-  '1305': 'Clientes (Deudores comerciales)',
-  '1325': 'Cuentas por cobrar a socios',
-  '1455': 'Cuentas por Cobrar – Empleados',
-  '1705': 'Seguros pagados por anticipado',
-  '2305': 'Nómina por pagar',
-  '2370': 'Retención en la fuente por pagar',
-  '2380': 'Aportes Seguridad Social por pagar',
-  '2408': 'IVA Generado por pagar',
-  '2610': 'Cesantías por pagar',
-  '2615': 'Intereses cesantías por pagar',
-  '2630': 'Prima de servicios por pagar',
-  '2640': 'Vacaciones por pagar',
-  '2390': 'Cuentas por pagar a socios',
-  '2396': 'Préstamos de socios – Pasivo financiero',
-  '3105': 'Capital suscrito y pagado',
-  '3120': 'Capital por capitalizar (inversiones transitorio)',
-  '3305': 'Reservas de capital',
-  '3610': 'Utilidades del ejercicio',
-  '3705': 'Utilidades acumuladas de ejercicios anteriores',
-  '4135': 'Ingresos – Servicios logísticos',
-  '5105': 'Gastos personal – Salarios',
-  '5110': 'Gastos personal – Aux. transporte',
-  '5115': 'Gastos personal – Aux. rodamiento (no salarial)',
-  '5120': 'Gastos personal – Dotación obligatoria',
-  '5135': 'Provisión cesantías',
-  '5136': 'Provisión int. cesantías',
-  '5137': 'Provisión prima de servicios',
-  '5138': 'Provisión vacaciones',
-  '5140': 'Aportes seguridad social – empresa',
-  '5150': 'Gastos generales – pólizas y seguros',
-  '5195': 'Gastos generales – honorarios',
-  '5199': 'Gastos generales – otros',
-  '5395': 'Gastos no deducibles – multas (Art. 89 E.T.)',
-};
+// El catalogo de cuentas vive en Supabase (tabla `plan_cuentas`). Este Map es
+// solo la cache en memoria de esa consulta: se llena al arrancar con
+// cargarPlanCuentas(). Antes habia aqui una constante con los codigos y
+// nombres duplicados, que se desincronizaba del catalogo real.
+const CUENTAS = new Map();
+
+/** Nombre de una cuenta del PUC; cae al propio codigo si aun no esta cargado. */
+const nombreCuenta = (codigo) => CUENTAS.get(codigo) || codigo;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. ESTADO GLOBAL
@@ -54,18 +26,11 @@ const PUC = {
 const S = {
   params: { smlv: 1423500, auxTransporte: 200000, auxRodamiento: 300000, diasPeriodo: 30 },
 
-  domiciliarios: [
-    { id: 'D001', nombre: 'Manuel Fernando Toro', doc: '98.406.138', placa: 'BZK-14A', tel: '314 678 9012', ingreso: '2025-03-01', cxc: 0 },
-    { id: 'D002', nombre: 'Jhon Fredy Cardona', doc: '98.345.678', placa: 'MSP-22C', tel: '316 234 5678', ingreso: '2025-05-15', cxc: 0 },
-    { id: 'D003', nombre: 'Luz Marina Ospina', doc: '43.567.890', placa: 'KLT-55B', tel: '310 987 6543', ingreso: '2025-07-01', cxc: 0 },
-    { id: 'D004', nombre: 'Rodrigo Estrada Gil', doc: '71.234.567', placa: 'NAP-88D', tel: '312 456 7890', ingreso: '2024-11-01', cxc: 0 },
-  ],
-
-  socios: [
-    { id: 'S001', nombre: 'Henry Camilo Taborda' },
-    { id: 'S002', nombre: 'María Isabel Arias' },
-    { id: 'S003', nombre: 'Manuel Fernando Toro' },
-  ],
+  // Datos maestros: se cargan de Supabase (tablas `socios` y `domiciliarios`).
+  // `cxc` de cada domiciliario NO se guarda: se deriva de sus asientos en la
+  // cuenta 1455 dentro de recalcularDerivados().
+  domiciliarios: [],
+  socios: [],
 
   asientosSocios: [],
   asientosVentas: [],
@@ -74,7 +39,7 @@ const S = {
 
   // Acumuladores para impuestos
   ivaAcum: { pct19: 0, pct5: 0, excluido: 0 },
-  rteAcum: { compras: 0, honJ: 0, honN: 0, serv: 0 },
+  rteAcum: { compras: 0, honJ: 0, honN: 0, serv: 0, arriendo: 0 },
   multasAcum: 0,
 
   seq: 1,
@@ -391,12 +356,6 @@ function asientoOperacion(cat, prov, nit, valor, retePct, desc, nroFact, fecha) 
     otros: '5199',
   }[cat] || '5199';
 
-  // Acumular retención
-  if (retePct === 3.5) S.rteAcum.compras += reteVal;
-  else if (retePct === 4) S.rteAcum.honJ += reteVal;
-  else if (retePct === 11) S.rteAcum.honN += reteVal;
-  else if (retePct === 6 || retePct === 2) S.rteAcum.serv += reteVal;
-
   const lineas = [
     { cuenta: cuentaGasto, desc: `${cat} – ${desc} – ${prov}`, debito: valor, credito: 0 },
     { cuenta: '1110', desc: `Pago ${nroFact || ''}`, debito: 0, credito: neto },
@@ -419,11 +378,11 @@ function htmlAsiento(a) {
   if (!a) return '';
   const lineasHtml = a.lineas.map(l => {
     const isCredito = l.debito === 0 && l.credito > 0;
-    const nombreCuenta = PUC[l.cuenta] || l.cuenta;
+    const nombreDeLaCuenta = nombreCuenta(l.cuenta);
     return `
       <tr>
         <td class="cuenta-col${isCredito ? ' indented' : ''}">
-          <strong>${nombreCuenta}</strong> <span style="color: var(--text-muted); font-size: 0.85em;">Cód. ${l.cuenta}</span>
+          <strong>${nombreDeLaCuenta}</strong> <span style="color: var(--text-muted); font-size: 0.85em;">Cód. ${l.cuenta}</span>
         </td>
         <td class="desc-col${isCredito ? ' indented' : ''}">${l.desc}</td>
         <td class="text-right mono-cell">${l.debito > 0 ? fmt(l.debito) : '<span style="color:var(--text-3)">—</span>'}</td>
@@ -690,6 +649,8 @@ function updateImpuestos() {
   document.getElementById('rte-hon-j').textContent = fmt(S.rteAcum.honJ);
   document.getElementById('rte-hon-n').textContent = fmt(S.rteAcum.honN);
   document.getElementById('rte-serv').textContent = fmt(S.rteAcum.serv);
+  const elArr = document.getElementById('rte-arriendo');
+  if (elArr) elArr.textContent = fmt(S.rteAcum.arriendo);
   const rteTotal = Object.values(S.rteAcum).reduce((a, b) => a + b, 0);
   document.getElementById('rte-total').textContent = fmt(rteTotal);
 
@@ -795,24 +756,6 @@ function showAlerta(wrapperId, boxId, alerta) {
     </div>`;
 }
 
-// Append row to a table body
-function addTableRow(bodyId, cells, countId) {
-  const body = document.getElementById(bodyId);
-  if (!body) return;
-  const emptyRow = body.querySelector('.empty-row');
-  if (emptyRow) emptyRow.parentElement.remove();
-  const tr = document.createElement('tr');
-  tr.innerHTML = cells;
-  body.prepend(tr);
-  if (countId) {
-    const el = document.getElementById(countId);
-    if (el) {
-      const n = body.querySelectorAll('tr').length;
-      el.textContent = `${n} registro${n !== 1 ? 's' : ''}`;
-    }
-  }
-}
-
 // Export CSV (all asientos)
 function exportarCSV() {
   const all = [
@@ -822,7 +765,7 @@ function exportarCSV() {
   if (!all.length) { alert('No hay movimientos para exportar.'); return; }
   const rows = all.flatMap(a => a.lineas.map(l => [
     a.comp, a.fecha, a.modulo, `"${a.nombre}"`, `"${a.desc}"`,
-    l.cuenta, `"${PUC[l.cuenta] || l.cuenta}"`,
+    l.cuenta, `"${nombreCuenta(l.cuenta)}"`,
     l.debito || 0, l.credito || 0
   ]));
   const csv = [['Comprobante', 'Fecha', 'Módulo', 'Tercero', 'Descripción', 'Cuenta', 'Nombre cuenta', 'Débito', 'Crédito'].join(','),
@@ -835,8 +778,14 @@ function exportarCSV() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 11.b PERSISTENCIA SUPABASE — MÓDULO SOCIOS
+// 11.b PERSISTENCIA SUPABASE — TODOS LOS MÓDULOS
 // ─────────────────────────────────────────────────────────────────────────────
+// Cabecera en `asientos` + líneas en `asiento_detalles`. Los cuatro módulos
+// comparten exactamente el mismo camino: guardarAsientoDB() escribe, y cada
+// render vuelve a leer de la BD con un JOIN.
+
+/** `modulo` en BD (plural) -> valor que usan el libro y sus filtros. */
+const MODULO_BD_A_APP = { socios: 'socio', ventas: 'venta', nomina: 'nomina', operacion: 'gasto' };
 
 const TIPO_SOCIO_LABELS = {
   capital: 'Aporte de Capital',
@@ -847,12 +796,37 @@ const TIPO_SOCIO_LABELS = {
   prestamo_a_socio: 'Préstamo al Socio',
 };
 
+const TIPO_VENTA_LABELS = {
+  factura: 'Factura venta', cobro: 'Cobro cartera',
+  nota_credito: 'Nota crédito', anticipo_cliente: 'Anticipo',
+};
+
+const CAT_OP_LABELS = {
+  dotacion: 'Dotación', poliza: 'Póliza', honorarios: 'Honorarios',
+  arriendo: 'Arriendo', servicios: 'Servicios', papeleria: 'Papelería',
+  publicidad: 'Publicidad', mantenimiento: 'Mantenimiento', otros: 'Otros',
+};
+
+// El chip es presentación, así que no se guarda: se deriva del tipo, que sí
+// está en la BD. Mantiene vivo el filtro por "cxc" del libro global.
+const CHIP_POR_TIPO = {
+  cobro: 'chip-ok',
+  poliza: 'chip-poliza',
+  dotacion: 'chip-gasto',
+  repuesto: 'chip-cxc', multa: 'chip-cxc', prestamo: 'chip-cxc',
+};
+const CHIP_POR_MODULO = {
+  socios: 'chip-socio', ventas: 'chip-venta',
+  nomina: 'chip-nomina', operacion: 'chip-gasto',
+};
+
 /** Escapa texto antes de inyectarlo como HTML (los datos vienen de la BD). */
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-/** `modulo` en BD (plural) -> convención en memoria que usa el filtro del libro. */
-const MODULO_BD_A_APP = { socios: 'socio', ventas: 'venta', nomina: 'nomina', operacion: 'gasto' };
+/** Suma un lado ('debito' | 'credito') de todas las líneas de una cuenta. */
+const montoCuenta = (a, cuenta, lado) =>
+  (a.lineas || []).reduce((s, l) => s + (l.cuenta === cuenta ? (l[lado] || 0) : 0), 0);
 
 /** Adapta una fila de la BD (con su join) al formato que espera htmlAsiento(). */
 function asientoDesdeDB(row) {
@@ -868,11 +842,21 @@ function asientoDesdeDB(row) {
     }));
 
   return {
+    id: row.id,
     comp: row.comprobante,
     fecha: row.fecha,
     modulo: MODULO_BD_A_APP[row.modulo] || row.modulo,
+    chip: CHIP_POR_TIPO[row.tipo] || CHIP_POR_MODULO[row.modulo] || 'chip-gasto',
     nombre: row.tercero,
     desc: row.descripcion,
+    tipo: row.tipo,
+    modalidad: row.modalidad,
+    clasificacion: row.clasificacion,
+    soporte: row.soporte,
+    nit: row.tercero_nit,
+    vencimiento: row.vencimiento,
+    tasa: (row.tasa === null || row.tasa === undefined) ? null : Number(row.tasa),
+    valor: Number(row.valor) || 0,
     lineas,
     totD: lineas.reduce((acc, l) => acc + l.debito, 0),
     totC: lineas.reduce((acc, l) => acc + l.credito, 0),
@@ -880,24 +864,27 @@ function asientoDesdeDB(row) {
 }
 
 /**
- * Guarda el asiento en Supabase: primero la cabecera en `asientos`, recupera
- * el id generado y con él inserta las líneas en `asiento_detalles`.
- * Devuelve el id de la cabecera.
+ * Guarda un asiento: primero la cabecera en `asientos`, recupera el id
+ * generado y con él inserta las líneas en `asiento_detalles`.
+ * Idéntico para los cuatro módulos.
  */
-async function guardarAsientoSocioDB(a, meta) {
+async function guardarAsientoDB(a, meta) {
   const { data: cabecera, error: errCab } = await supabase
     .from('asientos')
     .insert({
       comprobante: a.comp,
       fecha: a.fecha,
       descripcion: a.desc,
-      modulo: 'socios',
+      modulo: meta.modulo,
       tercero: a.nombre,
-      tipo: meta.tipo,
+      tipo: meta.tipo || null,
       modalidad: meta.modalidad || null,
       clasificacion: meta.clasificacion || null,
       soporte: meta.soporte || null,
       valor: meta.valor,
+      tercero_nit: meta.nit || null,
+      vencimiento: meta.vencimiento || null,
+      tasa: (meta.tasa === undefined || meta.tasa === null || meta.tasa === '') ? null : meta.tasa,
     })
     .select('id')
     .single();
@@ -926,6 +913,266 @@ async function guardarAsientoSocioDB(a, meta) {
 }
 
 /**
+ * Envoltorio común de los botones de guardado: bloquea el botón, persiste y,
+ * si la BD falla, revierte lo que el generador ya había dejado en memoria.
+ * @returns {Promise<boolean>} true si se guardó.
+ */
+async function guardarConFeedback(btn, a, meta, arrayEnMemoria) {
+  const htmlOriginal = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+
+  try {
+    await guardarAsientoDB(a, meta);
+    return true;
+  } catch (err) {
+    console.error('[Supabase] No se pudo guardar el asiento:', err);
+    alert('No se pudo guardar en la base de datos:\n' + (err.message || err));
+    if (arrayEnMemoria) arrayEnMemoria.pop();
+    S.seq--;
+    return false;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = htmlOriginal; }
+  }
+}
+
+/** Lee de la BD los asientos de un módulo, con sus líneas. */
+async function leerAsientos(moduloBD) {
+  const { data, error } = await supabase
+    .from('asientos')
+    .select(`
+      id, comprobante, fecha, descripcion, modulo, tercero, tipo, modalidad,
+      clasificacion, soporte, valor, tercero_nit, vencimiento, tasa,
+      asiento_detalles ( id, cuenta, descripcion, debito, credito, tipo_normativa )
+    `)
+    .eq('modulo', moduloBD)
+    .order('fecha', { ascending: false })
+    .order('id', { ascending: false });
+
+  if (error) {
+    console.error('[Supabase] Error al cargar asientos de ' + moduloBD + ':', error);
+    return { filas: null, error };
+  }
+  return { filas: data, error: null };
+}
+
+/** Fila desplegable con el asiento completo, común a las tres tablas. */
+function filaDetalle(a, columnas) {
+  const n = a.lineas.length;
+  return `
+    <tr>
+      <td colspan="${columnas}" style="padding:0 14px 10px">
+        <details>
+          <summary style="cursor:pointer;padding:8px 0;color:var(--text-3);font-size:12px;list-style:none">
+            ▸ Ver detalle del asiento contable · ${n} línea${n !== 1 ? 's' : ''} (Opcional)
+          </summary>
+          ${htmlAsiento(a)}
+        </details>
+      </td>
+    </tr>`;
+}
+
+/** Pinta el estado vacío o el error de una tabla. Devuelve true si ya pintó. */
+function pintarEstadoTabla(body, countEl, columnas, filas, error) {
+  if (error) {
+    body.innerHTML = `<tr><td colspan="${columnas}" class="empty-row" style="color:var(--red)">
+      ⚠ No se pudieron cargar los movimientos: ${esc(error.message)}</td></tr>`;
+    if (countEl) countEl.textContent = '— registros';
+    return true;
+  }
+  if (!filas.length) {
+    body.innerHTML = `<tr><td colspan="${columnas}" class="empty-row">Sin registros aún.</td></tr>`;
+    if (countEl) countEl.textContent = '0 registros';
+    return true;
+  }
+  if (countEl) countEl.textContent = `${filas.length} registro${filas.length !== 1 ? 's' : ''}`;
+  return false;
+}
+
+// ── SOCIOS ───────────────────────────────────────────────────────────────────
+async function renderSocios() {
+  const body = document.getElementById('bodySocios');
+  const countEl = document.getElementById('countSocios');
+  if (!body) return;
+
+  const { filas, error } = await leerAsientos('socios');
+  if (pintarEstadoTabla(body, countEl, 7, filas || [], error)) {
+    if (!error) S.asientosSocios = [];
+    return;
+  }
+
+  S.asientosSocios = filas.map(asientoDesdeDB).reverse();
+
+  body.innerHTML = filas.map(row => {
+    const a = asientoDesdeDB(row);
+    return `
+      <tr>
+        <td>${fmtDate(row.fecha)}</td>
+        <td>${esc(row.tercero) || '—'}</td>
+        <td><span class="chip chip-socio">${esc(TIPO_SOCIO_LABELS[row.tipo] || row.tipo || '—')}</span></td>
+        <td style="color:var(--text-2);font-size:12.5px">${esc(row.descripcion) || '—'}</td>
+        <td style="color:var(--text-2);font-size:12.5px">${esc(row.modalidad) || '—'}</td>
+        <td class="text-right mono-cell">${fmt(a.valor)}</td>
+        <td><span class="mono-cell" style="font-size:11px;color:var(--accent)">${esc(row.comprobante)}</span></td>
+      </tr>
+      ${filaDetalle(a, 7)}`;
+  }).join('');
+}
+
+// ── VENTAS ───────────────────────────────────────────────────────────────────
+async function renderVentas() {
+  const body = document.getElementById('bodyVentas');
+  const countEl = document.getElementById('countVentas');
+  if (!body) return;
+
+  const { filas, error } = await leerAsientos('ventas');
+  if (pintarEstadoTabla(body, countEl, 7, filas || [], error)) {
+    if (!error) S.asientosVentas = [];
+    return;
+  }
+
+  S.asientosVentas = filas.map(asientoDesdeDB).reverse();
+
+  body.innerHTML = filas.map(row => {
+    const a = asientoDesdeDB(row);
+    // IVA y total salen de las líneas: la partida doble es la fuente de verdad.
+    const iva = montoCuenta(a, '2408', 'credito');
+    const total = a.totD;
+    const estado = row.tipo === 'cobro'
+      ? '<span class="chip chip-ok">Pagado</span>'
+      : '<span class="chip chip-pendiente">Pendiente</span>';
+    return `
+      <tr>
+        <td>${fmtDate(row.fecha)}</td>
+        <td style="font-size:12.5px">${esc(row.tercero) || '—'}</td>
+        <td><span class="chip chip-venta">${esc(TIPO_VENTA_LABELS[row.tipo] || row.tipo || '—')}</span></td>
+        <td class="text-right mono-cell">${fmt(a.valor)}</td>
+        <td class="text-right mono-cell" style="color:var(--yellow)">${iva > 0 ? fmt(iva) : '—'}</td>
+        <td class="text-right mono-cell" style="font-weight:700;color:var(--green)">${fmt(total)}</td>
+        <td>${estado}</td>
+      </tr>
+      ${filaDetalle(a, 7)}`;
+  }).join('');
+}
+
+// ── OPERACIÓN / PROVEEDORES ──────────────────────────────────────────────────
+async function renderOp() {
+  const body = document.getElementById('bodyOp');
+  const countEl = document.getElementById('countOp');
+  if (!body) return;
+
+  const { filas, error } = await leerAsientos('operacion');
+  if (pintarEstadoTabla(body, countEl, 7, filas || [], error)) {
+    if (!error) S.asientosOp = [];
+    return;
+  }
+
+  S.asientosOp = filas.map(asientoDesdeDB).reverse();
+
+  body.innerHTML = filas.map(row => {
+    const a = asientoDesdeDB(row);
+    const rete = montoCuenta(a, '2370', 'credito');
+    const neto = a.valor - rete;
+    return `
+      <tr>
+        <td>${fmtDate(row.fecha)}</td>
+        <td style="font-size:12.5px">${esc(row.tercero) || '—'}</td>
+        <td><span class="chip chip-gasto">${esc(CAT_OP_LABELS[row.tipo] || row.tipo || '—')}</span></td>
+        <td class="text-right mono-cell">${fmt(a.valor)}</td>
+        <td class="text-right mono-cell" style="color:var(--yellow)">${rete > 0 ? fmt(rete) : '—'}</td>
+        <td class="text-right mono-cell">${fmt(neto)}</td>
+        <td class="mono-cell" style="font-size:11px;color:var(--accent)">${esc(row.comprobante)}</td>
+      </tr>
+      ${filaDetalle(a, 7)}`;
+  }).join('');
+}
+
+// ── NÓMINA ───────────────────────────────────────────────────────────────────
+// No tiene tabla de historial propia: `bodyNomina` es el listado de personal.
+// Los asientos (movimientos y liquidaciones) se cargan para el libro global,
+// los impuestos y el saldo de cuentas por cobrar de cada trabajador.
+async function cargarAsientosNomina() {
+  const { filas, error } = await leerAsientos('nomina');
+  if (error) return;
+  S.asientosNomina = filas.map(asientoDesdeDB).reverse();
+}
+
+/**
+ * Concepto de retencion segun la CATEGORIA del gasto elegida por el usuario.
+ *
+ * Antes esto se decidia por la tarifa, lo que confundia conceptos distintos que
+ * comparten porcentaje: arrendamiento y compras son ambos 3.5%, asi que todo
+ * arriendo se declaraba como compra. La categoria es lo que describe la
+ * operacion, asi que es la que manda.
+ */
+const CONCEPTO_RETE_POR_CATEGORIA = {
+  dotacion: 'compras',
+  papeleria: 'compras',
+  honorarios: 'honorarios',   // se resuelve J / N mas abajo
+  arriendo: 'arriendo',
+  servicios: 'serv',
+  publicidad: 'serv',
+  mantenimiento: 'serv',
+  poliza: 'serv',
+};
+
+/**
+ * Respaldo por tarifa. Solo se usa con categorias sin concepto propio
+ * ('otros' o cualquier valor no previsto), donde no hay senal de categoria.
+ */
+const CONCEPTO_RETE_POR_TASA = { 3.5: 'compras', 4: 'honJ', 11: 'honN', 6: 'serv', 2: 'serv' };
+
+/**
+ * Resuelve el casillero de retencion de un gasto.
+ * @param {string} categoria  valor de `catGasto`, guardado como `tipo`.
+ * @param {number|null} tasa  % retenido; solo desempata honorarios J / N,
+ *                            porque la categoria no dice el tipo de tercero.
+ */
+function conceptoRetencion(categoria, tasa) {
+  const porCategoria = CONCEPTO_RETE_POR_CATEGORIA[categoria];
+  if (porCategoria === 'honorarios') return tasa === 11 ? 'honN' : 'honJ';
+  if (porCategoria) return porCategoria;
+  return CONCEPTO_RETE_POR_TASA[tasa] || null;
+}
+
+/**
+ * Recalcula desde los asientos ya cargados todo lo que antes se acumulaba
+ * al vuelo en variables de memoria y se perdía al recargar la página:
+ * IVA por tarifa, retenciones por concepto, multas no deducibles y el saldo
+ * de cuentas por cobrar de cada domiciliario.
+ */
+function recalcularDerivados() {
+  S.ivaAcum = { pct19: 0, pct5: 0, excluido: 0 };
+  S.rteAcum = { compras: 0, honJ: 0, honN: 0, serv: 0, arriendo: 0 };
+  S.multasAcum = 0;
+  S.domiciliarios.forEach(d => { d.cxc = 0; });
+
+  S.asientosVentas.forEach(a => {
+    if (a.tipo !== 'factura') return;
+    const iva = montoCuenta(a, '2408', 'credito');
+    if (a.tasa === 19) S.ivaAcum.pct19 += iva;
+    else if (a.tasa === 5) S.ivaAcum.pct5 += iva;
+    else S.ivaAcum.excluido += a.valor;
+  });
+
+  S.asientosOp.forEach(a => {
+    const rete = montoCuenta(a, '2370', 'credito');
+    if (!rete) return;
+    // `a.tipo` guarda la categoria del gasto (catGasto).
+    const concepto = conceptoRetencion(a.tipo, a.tasa);
+    if (concepto && concepto in S.rteAcum) S.rteAcum[concepto] += rete;
+    else console.warn('[retenciones] Gasto sin concepto asignable:', a.comp, a.tipo, a.tasa);
+  });
+
+  S.asientosNomina.forEach(a => {
+    if (a.tipo === 'multa') S.multasAcum += a.valor;
+    const dom = S.domiciliarios.find(d => d.nombre === a.nombre);
+    if (dom) dom.cxc += montoCuenta(a, '1455', 'debito') - montoCuenta(a, '1455', 'credito');
+  });
+
+  S.domiciliarios.forEach(d => { d.cxc = Math.max(0, Math.round(d.cxc)); });
+}
+
+/**
  * Alinea el contador de comprobantes con lo que ya existe en la BD para no
  * chocar con el UNIQUE de `comprobante` tras recargar la página.
  */
@@ -941,74 +1188,75 @@ async function syncSeqComprobante() {
   if (Number.isFinite(n) && n >= S.seq) S.seq = n + 1;
 }
 
-/**
- * Renderiza el historial de socios leyendo `asientos` + `asiento_detalles`
- * mediante JOIN. Cada registro conserva la divulgación progresiva: la fila
- * muestra el resumen y el <details> despliega el asiento completo.
- */
-async function renderSocios() {
-  const body = document.getElementById('bodySocios');
-  const countEl = document.getElementById('countSocios');
-  if (!body) return;
+// ── DATOS MAESTROS Y CATALOGO ────────────────────────────────────────────────
 
+/** Carga el catalogo de cuentas a la cache que usa nombreCuenta(). */
+async function cargarPlanCuentas() {
   const { data, error } = await supabase
-    .from('asientos')
-    .select(`
-      id, comprobante, fecha, descripcion, modulo, tercero, tipo, modalidad,
-      clasificacion, valor,
-      asiento_detalles ( id, cuenta, descripcion, debito, credito, tipo_normativa )
-    `)
-    .eq('modulo', 'socios')
-    .order('fecha', { ascending: false })
-    .order('id', { ascending: false });
+    .from('plan_cuentas')
+    .select('codigo, nombre');
 
   if (error) {
-    console.error('[Supabase] Error al cargar asientos de socios:', error);
-    body.innerHTML = `<tr><td colspan="7" class="empty-row" style="color:var(--red)">
-      ⚠ No se pudieron cargar los movimientos: ${esc(error.message)}</td></tr>`;
-    if (countEl) countEl.textContent = '— registros';
+    // Sin catalogo los asientos siguen cuadrando: solo se veran los codigos
+    // en lugar de los nombres, asi que no se aborta la carga.
+    console.error('[Supabase] No se pudo cargar plan_cuentas:', error);
     return;
   }
+  CUENTAS.clear();
+  data.forEach(c => CUENTAS.set(c.codigo, c.nombre));
+}
 
-  if (!data.length) {
-    S.asientosSocios = [];
-    body.innerHTML = `<tr><td colspan="7" class="empty-row">Sin registros aún.</td></tr>`;
-    if (countEl) countEl.textContent = '0 registros';
-    return;
-  }
+/** Carga el listado de socios desde la BD. */
+async function cargarSocios() {
+  const { data, error } = await supabase
+    .from('socios')
+    .select('id, nombre, documento')
+    .eq('activo', true)
+    .order('id');
 
-  // Los KPIs y el libro global siguen leyendo de memoria: se rehidratan aquí
-  // para que no queden en cero tras recargar la página.
-  S.asientosSocios = data.map(asientoDesdeDB).reverse();
+  if (error) { console.error('[Supabase] No se pudo cargar socios:', error); return; }
+  S.socios = data;
+}
 
-  body.innerHTML = data.map(row => {
-    const a = asientoDesdeDB(row);
-    const nLineas = a.lineas.length;
-    return `
-      <tr>
-        <td>${fmtDate(row.fecha)}</td>
-        <td>${esc(row.tercero) || '—'}</td>
-        <td><span class="chip chip-socio">${esc(TIPO_SOCIO_LABELS[row.tipo] || row.tipo || '—')}</span></td>
-        <td style="color:var(--text-2);font-size:12.5px">${esc(row.descripcion) || '—'}</td>
-        <td style="color:var(--text-2);font-size:12.5px">${esc(row.modalidad) || '—'}</td>
-        <td class="text-right mono-cell">${fmt(Number(row.valor) || 0)}</td>
-        <td><span class="mono-cell" style="font-size:11px;color:var(--accent)">${esc(row.comprobante)}</span></td>
-      </tr>
-      <tr>
-        <td colspan="7" style="padding:0 14px 10px">
-          <details>
-            <summary style="cursor:pointer;padding:8px 0;color:var(--text-3);font-size:12px;list-style:none">
-              ▸ Ver detalle del asiento contable · ${nLineas} línea${nLineas !== 1 ? 's' : ''} (Opcional)
-            </summary>
-            ${htmlAsiento(a)}
-          </details>
-        </td>
-      </tr>`;
-  }).join('');
+/** Carga el listado de domiciliarios. `cxc` arranca en 0: lo llena recalcularDerivados(). */
+async function cargarDomiciliarios() {
+  const { data, error } = await supabase
+    .from('domiciliarios')
+    .select('id, nombre, documento, placa, telefono, ingreso')
+    .eq('activo', true)
+    .order('id');
 
-  if (countEl) {
-    countEl.textContent = `${data.length} registro${data.length !== 1 ? 's' : ''}`;
-  }
+  if (error) { console.error('[Supabase] No se pudo cargar domiciliarios:', error); return; }
+  S.domiciliarios = data.map(d => ({
+    id: d.id, nombre: d.nombre, doc: d.documento, placa: d.placa,
+    tel: d.telefono, ingreso: d.ingreso, cxc: 0,
+  }));
+}
+
+/** Siguiente id libre de la serie D001, D002, ... */
+function siguienteIdDomiciliario() {
+  const usados = S.domiciliarios
+    .map(d => parseInt(String(d.id).replace(/\D/g, ''), 10))
+    .filter(Number.isFinite);
+  const siguiente = (usados.length ? Math.max(...usados) : 0) + 1;
+  return 'D' + String(siguiente).padStart(3, '0');
+}
+
+/** Recarga todo desde Supabase y repinta la interfaz completa. */
+async function recargarTodo() {
+  // Maestros y catalogo van primero: renderNomina() y recalcularDerivados()
+  // necesitan el listado de domiciliarios ya cargado.
+  await Promise.all([cargarPlanCuentas(), cargarSocios(), cargarDomiciliarios()]);
+  fillSocioSel();
+  await Promise.all([renderSocios(), renderVentas(), renderOp(), cargarAsientosNomina()]);
+  recalcularDerivados();
+  updateKpiSocios();
+  updateKpiVentas();
+  updateKpiOp();
+  renderNomina();
+  fillDomSel();
+  updateImpuestos();
+  renderLibro();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1123,6 +1371,82 @@ function mostrarAlertaFiscalSocio(tipo, soporte) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 11.c CONTROL DE SESION
+// ─────────────────────────────────────────────────────────────────────────────
+// La app no consulta nada sin sesion: con las politicas RLS de sql/005 la
+// clave publica del navegador ya no da acceso a ninguna tabla.
+
+let sesionMontada = false;
+
+function mostrarLogin(mostrar) {
+  const pantalla = document.getElementById('pantallaLogin');
+  if (pantalla) pantalla.hidden = !mostrar;
+  const info = document.getElementById('sesionInfo');
+  if (info) info.hidden = mostrar;
+}
+
+/** Reacciona a la sesion: carga la app o muestra la pantalla de acceso. */
+async function aplicarSesion(session) {
+  if (!session) {
+    sesionMontada = false;
+    mostrarLogin(true);
+    return;
+  }
+
+  const email = document.getElementById('sesionEmail');
+  if (email) email.textContent = session.user?.email || 'Sesion activa';
+  mostrarLogin(false);
+
+  // onAuthStateChange tambien dispara al renovar el token; sin esta guarda
+  // se recargaria toda la interfaz cada vez que caduca el access token.
+  if (sesionMontada) return;
+  sesionMontada = true;
+
+  await syncSeqComprobante();
+  await recargarTodo();
+}
+
+function montarControlesSesion() {
+  const form = document.getElementById('formLogin');
+  const cajaError = document.getElementById('loginError');
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btnLogin');
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+
+    if (cajaError) cajaError.hidden = true;
+    if (btn) { btn.disabled = true; btn.textContent = 'Entrando...'; }
+
+    try {
+      await iniciarSesion(email, password);
+      // La carga la dispara observarSesion(); aqui solo se limpia el campo.
+      document.getElementById('loginPassword').value = '';
+    } catch (err) {
+      console.error('[Auth] Fallo el inicio de sesion:', err);
+      if (cajaError) { cajaError.textContent = mensajeDeError(err); cajaError.hidden = false; }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Entrar'; }
+    }
+  });
+
+  document.getElementById('btnCerrarSesion')?.addEventListener('click', async () => {
+    try {
+      await cerrarSesion();
+    } catch (err) {
+      console.error('[Auth] No se pudo cerrar sesion:', err);
+      alert('No se pudo cerrar sesion: ' + mensajeDeError(err));
+      return;
+    }
+    // Se limpia lo que hubiera quedado en pantalla y en memoria.
+    S.asientosSocios = []; S.asientosVentas = []; S.asientosNomina = []; S.asientosOp = [];
+    S.socios = []; S.domiciliarios = [];
+    CUENTAS.clear();
+    location.reload();
+  });
+}
+// ─────────────────────────────────────────────────────────────────────────────
 // 12.b EXPOSICIÓN GLOBAL
 // ─────────────────────────────────────────────────────────────────────────────
 // app.js pasó a ser módulo ES (<script type="module">) para poder importar el
@@ -1150,20 +1474,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const tEl = document.getElementById('taxPeriodo');
   if (tEl) tEl.textContent = `${meses[now.getMonth()]} ${now.getFullYear()}`;
 
-  fillDomSel();
-  fillSocioSel();
-  renderNomina();
-  renderLibro();
-  updateImpuestos();
 
-  // Carga inicial desde Supabase: alinea el consecutivo de comprobantes y
-  // pinta el historial de socios con lo que ya está persistido.
-  (async () => {
-    await syncSeqComprobante();
-    await renderSocios();
-    updateKpiSocios();
-    renderLibro();
-  })();
+  // Nada se carga sin sesion. observarSesion() dispara aplicarSesion() tanto
+  // al arrancar como en cada login / logout / renovacion de token.
+  montarControlesSesion();
+  observarSesion(aplicarSesion);
+  (async () => { await aplicarSesion(await sesionActual()); })();
 
   // ══ NAVEGACIÓN ══
   document.querySelectorAll('.nav-item').forEach(btn => {
@@ -1235,31 +1551,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     a.clasificacion = categoriaContable;
 
-    // ── Persistencia en Supabase (cabecera + lineas) ───────────────────────
-    const btnHtml = btn ? btn.innerHTML : '';
-    if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
-
-    try {
-      await guardarAsientoSocioDB(a, {
-        tipo, modalidad, soporte, valor, clasificacion: categoriaContable,
-      });
-    } catch (err) {
-      console.error('[Supabase] No se pudo guardar el asiento de socio:', err);
-      alert('No se pudo guardar en la base de datos:\n' + (err.message || err));
-      // Deshacer lo que asientoSocio() ya habia dejado en memoria y liberar el
-      // consecutivo, para no perder sincronia con la BD.
-      S.asientosSocios.pop();
-      S.seq--;
-      return;
-    } finally {
-      if (btn) { btn.disabled = false; btn.innerHTML = btnHtml; }
-    }
+    // Persistencia en Supabase (cabecera + lineas)
+    const guardado = await guardarConFeedback(btn, a, {
+      modulo: 'socios', tipo, modalidad, soporte, valor,
+      clasificacion: categoriaContable,
+    }, S.asientosSocios);
+    if (!guardado) return;
 
     // La tabla se repinta desde la BD (SELECT con JOIN), no desde memoria.
     await renderSocios();
+    recalcularDerivados();
 
     showAsiento('asientoSocios', 'compSocios', 'asientoBodySocios', a);
     updateKpiSocios();
+    updateImpuestos();
     renderLibro();
 
     // Alertas fiscales / contables post-guardado
@@ -1279,7 +1584,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('clienteNombre')?.focus();
   });
 
-  document.getElementById('btnGuardarVenta')?.addEventListener('click', () => {
+  document.getElementById('btnGuardarVenta')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnGuardarVenta');
     const tipo = document.getElementById('tipoVenta').value;
     const cliente = document.getElementById('clienteNombre').value.trim();
     const nit = document.getElementById('clienteNit').value.trim();
@@ -1291,22 +1597,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!tipo || !cliente || valor <= 0) { alert('Completa tipo, cliente y valor.'); return; }
 
-    const iva = Math.round(valor * (ivaPct / 100));
-    const total = valor + iva;
     const a = asientoVenta(tipo, cliente, valor, ivaPct, desc, fecha);
 
-    const tipoLabels = { factura: 'Factura venta', cobro: 'Cobro cartera', nota_credito: 'Nota crédito', anticipo_cliente: 'Anticipo' };
-    const estado = tipo === 'cobro' ? '<span class="chip chip-ok">Pagado</span>' : '<span class="chip chip-pendiente">Pendiente</span>';
+    const guardado = await guardarConFeedback(btn, a, {
+      modulo: 'ventas', tipo, valor, nit, tasa: ivaPct, vencimiento: venc || null,
+    }, S.asientosVentas);
+    if (!guardado) return;
 
-    addTableRow('bodyVentas', `
-      <td>${fmtDate(fecha)}</td>
-      <td style="font-size:12.5px">${cliente}</td>
-      <td><span class="chip chip-venta">${tipoLabels[tipo] || tipo}</span></td>
-      <td class="text-right mono-cell">${fmt(valor)}</td>
-      <td class="text-right mono-cell" style="color:var(--yellow)">${iva > 0 ? fmt(iva) : '—'}</td>
-      <td class="text-right mono-cell" style="font-weight:700;color:var(--green)">${fmt(total)}</td>
-      <td>${estado}</td>
-    `, 'countVentas');
+    // La tabla se repinta desde la BD (SELECT con JOIN), no desde memoria.
+    await renderVentas();
+    recalcularDerivados();
 
     showAsiento('asientoVentas', 'compVentas', 'asientoBodyVentas', a);
     updateKpiVentas();
@@ -1324,7 +1624,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('polizaDates')?.classList.toggle('hidden', e.target.value !== 'poliza');
   });
 
-  document.getElementById('btnProcesarMovDom')?.addEventListener('click', () => {
+  document.getElementById('btnProcesarMovDom')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnProcesarMovDom');
     const tipo = document.getElementById('tipoMovDom').value;
     const domId = document.getElementById('domSel').value;
     const valor = parseFloat(document.getElementById('valorMovDom').value) || 0;
@@ -1339,6 +1640,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const dom = S.domiciliarios.find(d => d.id === domId) || S.domiciliarios[0];
     const a = asientoMovDom(tipo, dom, valor, desc, prov, fecha, pd, ph);
 
+    const guardado = await guardarConFeedback(btn, a, {
+      // En polizas, `vencimiento` guarda el fin de vigencia.
+      modulo: 'nomina', tipo, valor, vencimiento: (tipo === 'poliza' && ph) ? ph : null,
+    }, S.asientosNomina);
+
+    // asientoMovDom() ya habia movido dom.cxc en memoria; se recalcula siempre
+    // desde la BD para que el saldo refleje solo lo realmente persistido.
+    if (!guardado) { recalcularDerivados(); renderNomina(); return; }
+
+    await cargarAsientosNomina();
+    recalcularDerivados();
+
     showAsiento('asientoDom', 'compDom', 'asientoBodyDom', a);
     if (a.alerta) showAlerta('alertaDomWrapper', 'alertaDom', a.alerta);
     renderNomina();
@@ -1350,12 +1663,38 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ══ LIQUIDAR PERÍODO (todos) ══
-  document.getElementById('btnLiquidarPeriodo')?.addEventListener('click', () => {
-    S.domiciliarios.forEach(dom => {
-      const dias = parseInt(document.querySelector(`.dias-dom-${dom.id}`)?.value ?? S.params.diasPeriodo, 10);
-      const liq = calcNomina(dom, dias);
-      asientoNomina(liq);
-    });
+  document.getElementById('btnLiquidarPeriodo')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnLiquidarPeriodo');
+    const htmlOriginal = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Liquidando...'; }
+
+    // Cada trabajador genera su propio asiento; si uno falla se revierte solo
+    // ese y se sigue con el resto, informando al final cuales quedaron fuera.
+    const fallidos = [];
+    try {
+      for (const dom of S.domiciliarios) {
+        const dias = parseInt(document.querySelector('.dias-dom-' + dom.id)?.value ?? S.params.diasPeriodo, 10);
+        const liq = calcNomina(dom, dias);
+        const a = asientoNomina(liq);
+        try {
+          await guardarAsientoDB(a, { modulo: 'nomina', tipo: 'liquidacion', valor: a.totD });
+        } catch (err) {
+          console.error('[Supabase] No se pudo guardar la nomina de', dom.nombre, err);
+          S.asientosNomina.pop();
+          S.seq--;
+          fallidos.push(dom.nombre);
+        }
+      }
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = htmlOriginal; }
+    }
+
+    if (fallidos.length) {
+      alert('No se pudieron guardar las liquidaciones de:' + String.fromCharCode(10) + fallidos.join(', '));
+    }
+
+    await cargarAsientosNomina();
+    recalcularDerivados();
     renderNomina();
     renderLibro();
     updateImpuestos();
@@ -1370,15 +1709,34 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('modalClose')?.addEventListener('click', () => document.getElementById('modalBg').classList.add('hidden'));
   document.getElementById('btnCancelModal')?.addEventListener('click', () => document.getElementById('modalBg').classList.add('hidden'));
 
-  document.getElementById('btnSaveModal')?.addEventListener('click', () => {
+  document.getElementById('btnSaveModal')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnSaveModal');
     const nombre = document.getElementById('mNombre').value.trim();
     const doc = document.getElementById('mDocumento').value.trim();
     const ing = document.getElementById('mIngreso').value;
     const placa = document.getElementById('mPlaca').value.trim().toUpperCase();
     const tel = document.getElementById('mTelefono').value.trim();
     if (!nombre || !doc) { alert('Nombre y documento son requeridos.'); return; }
-    const seq = S.domiciliarios.length + 1;
-    S.domiciliarios.push({ id: `D${String(seq + 100).padStart(3, '0')}`, nombre, doc, placa, tel, ingreso: ing || today(), cxc: 0 });
+
+    const htmlOriginal = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+
+    const { error } = await supabase.from('domiciliarios').insert({
+      id: siguienteIdDomiciliario(),
+      nombre, documento: doc, placa, telefono: tel,
+      ingreso: ing || today(),
+    });
+
+    if (btn) { btn.disabled = false; btn.innerHTML = htmlOriginal; }
+
+    if (error) {
+      console.error('[Supabase] No se pudo crear el domiciliario:', error);
+      alert('No se pudo guardar el domiciliario:' + String.fromCharCode(10) + error.message);
+      return;
+    }
+
+    await cargarDomiciliarios();
+    recalcularDerivados();
     fillDomSel(); renderNomina(); updateImpuestos();
     document.getElementById('modalBg').classList.add('hidden');
     ['mNombre', 'mDocumento', 'mIngreso', 'mPlaca', 'mTelefono'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
@@ -1387,14 +1745,25 @@ document.addEventListener('DOMContentLoaded', () => {
   // ══ MODAL LIQUIDACIÓN ══
   document.getElementById('liqClose')?.addEventListener('click', () => document.getElementById('modalLiqBg').classList.add('hidden'));
   document.getElementById('liqCancel')?.addEventListener('click', () => document.getElementById('modalLiqBg').classList.add('hidden'));
-  document.getElementById('liqConfirm')?.addEventListener('click', () => {
-    if (S.liqActual) { asientoNomina(S.liqActual); renderNomina(); renderLibro(); updateImpuestos(); }
+  document.getElementById('liqConfirm')?.addEventListener('click', async () => {
+    if (S.liqActual) {
+      const btn = document.getElementById('liqConfirm');
+      const a = asientoNomina(S.liqActual);
+      const guardado = await guardarConFeedback(btn, a, {
+        modulo: 'nomina', tipo: 'liquidacion', valor: a.totD,
+      }, S.asientosNomina);
+      if (guardado) await cargarAsientosNomina();
+      recalcularDerivados();
+      renderNomina(); renderLibro(); updateImpuestos();
+      if (!guardado) return;
+    }
     document.getElementById('modalLiqBg').classList.add('hidden');
     document.querySelector('[data-tab="impuestos"]')?.click();
   });
 
   // ══ OPERACIÓN / PROVEEDORES ══
-  document.getElementById('btnGuardarOp')?.addEventListener('click', () => {
+  document.getElementById('btnGuardarOp')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnGuardarOp');
     const cat = document.getElementById('catGasto').value;
     const prov = document.getElementById('provOp').value.trim();
     const nit = document.getElementById('nitProv').value.trim();
@@ -1404,27 +1773,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const nroF = document.getElementById('nroFactOp').value.trim();
     const fecha = document.getElementById('fechaOp').value;
 
-    if (!cat || !prov || valor <= 0) { alert('Completa categoría, proveedor y valor.'); return; }
+    if (!cat || !prov || valor <= 0) { alert('Completa categoria, proveedor y valor.'); return; }
 
     const a = asientoOperacion(cat, prov, nit, valor, pct, desc, nroF, fecha);
-    const reteVal = a.reteVal || 0;
-    const neto = a.netoOp || valor;
 
-    const catLabels = {
-      dotacion: 'Dotación', poliza: 'Póliza', honorarios: 'Honorarios',
-      arriendo: 'Arriendo', servicios: 'Servicios', papeleria: 'Papelería',
-      publicidad: 'Publicidad', mantenimiento: 'Mantenimiento', otros: 'Otros'
-    };
+    const guardado = await guardarConFeedback(btn, a, {
+      // `cat` es el tipo de gasto; el numero de factura es su soporte documental.
+      modulo: 'operacion', tipo: cat, valor, nit, tasa: pct, soporte: nroF,
+    }, S.asientosOp);
+    if (!guardado) return;
 
-    addTableRow('bodyOp', `
-      <td>${fmtDate(fecha)}</td>
-      <td style="font-size:12.5px">${prov}</td>
-      <td><span class="chip chip-gasto">${catLabels[cat] || cat}</span></td>
-      <td class="text-right mono-cell">${fmt(valor)}</td>
-      <td class="text-right mono-cell" style="color:var(--yellow)">${reteVal > 0 ? fmt(reteVal) : '—'}</td>
-      <td class="text-right mono-cell">${fmt(neto)}</td>
-      <td class="mono-cell" style="font-size:11px;color:var(--accent)">${a.comp}</td>
-    `, 'countOp');
+    // La tabla se repinta desde la BD (SELECT con JOIN), no desde memoria.
+    await renderOp();
+    recalcularDerivados();
 
     showAsiento('asientoOp', 'compOp', 'asientoBodyOp', a);
     updateKpiOp();

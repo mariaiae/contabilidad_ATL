@@ -107,6 +107,17 @@
         </svg>
         <span id="periodoActual">Agosto 2026</span>
       </div>
+      <div class="sesion-info" id="sesionInfo" hidden
+           style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border,#2a2a2a)">
+        <div id="sesionEmail"
+             style="font-size:11px;color:var(--text-3,#888);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+        <button id="btnCerrarSesion" type="button"
+                style="margin-top:6px;width:100%;padding:6px 8px;font-size:11px;cursor:pointer;
+                       border-radius:6px;border:1px solid var(--border,#333);
+                       background:transparent;color:var(--text-2,#bbb)">
+          Cerrar sesión
+        </button>
+      </div>
     </div>
   </aside>
 
@@ -786,6 +797,10 @@
               <span class="tax-label">Retenido servicios (6%)</span>
               <span class="tax-value mono" id="rte-serv">$0</span>
             </div>
+            <div class="tax-row">
+              <span class="tax-label">Retenido arrendamientos (3.5%)</span>
+              <span class="tax-value mono" id="rte-arriendo">$0</span>
+            </div>
             <div class="tax-row total">
               <span class="tax-label">TOTAL RETENCIONES A DECLARAR</span>
               <span class="tax-value mono accent" id="rte-total">$0</span>
@@ -992,6 +1007,45 @@
         <button class="btn-primary" id="liqConfirm">Confirmar y Registrar Asiento</button>
       </div>
     </div>
+  </div>
+
+  <!-- ══════════════ ACCESO ══════════════
+       Cubre la aplicacion hasta que hay sesion. Los usuarios se dan de alta
+       en Supabase Dashboard -> Authentication -> Users. -->
+  <div id="pantallaLogin" hidden
+       style="position:fixed;inset:0;z-index:10000;display:flex;align-items:center;
+              justify-content:center;background:var(--bg,#111);padding:20px">
+    <form id="formLogin" autocomplete="on"
+          style="width:100%;max-width:340px;background:var(--card,#1b1b1b);
+                 border:1px solid var(--border,#2f2f2f);border-radius:12px;padding:26px">
+      <h1 style="margin:0 0 4px;font-size:17px;color:var(--text,#eee)">Contabilidad ATL</h1>
+      <p style="margin:0 0 20px;font-size:12.5px;color:var(--text-3,#888)">
+        Inicia sesión para acceder a la información contable.
+      </p>
+
+      <label for="loginEmail"
+             style="display:block;font-size:11.5px;color:var(--text-3,#888);margin-bottom:5px">Correo</label>
+      <input type="email" id="loginEmail" required autocomplete="username"
+             style="width:100%;box-sizing:border-box;padding:9px 11px;margin-bottom:14px;font-size:13px;
+                    border-radius:7px;border:1px solid var(--border,#333);
+                    background:var(--bg-2,#141414);color:var(--text,#eee)" />
+
+      <label for="loginPassword"
+             style="display:block;font-size:11.5px;color:var(--text-3,#888);margin-bottom:5px">Contraseña</label>
+      <input type="password" id="loginPassword" required autocomplete="current-password"
+             style="width:100%;box-sizing:border-box;padding:9px 11px;margin-bottom:18px;font-size:13px;
+                    border-radius:7px;border:1px solid var(--border,#333);
+                    background:var(--bg-2,#141414);color:var(--text,#eee)" />
+
+      <button type="submit" id="btnLogin"
+              style="width:100%;padding:10px;font-size:13px;font-weight:600;cursor:pointer;
+                     border-radius:7px;border:none;background:var(--accent,#2563eb);color:#fff">
+        Entrar
+      </button>
+
+      <div id="loginError" role="alert" hidden
+           style="margin-top:14px;font-size:12px;color:var(--red,#e5484d)"></div>
+    </form>
   </div>
 
   <script type="module" src="app.js"></script>
