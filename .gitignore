@@ -33,3 +33,5 @@ Thumbs.db
 # IDE
 .vscode/
 *.log
+
+.env
