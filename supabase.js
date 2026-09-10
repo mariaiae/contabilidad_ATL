@@ -50,6 +50,10 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   );
 }
 
+// Se exportan para que auth.js pueda diagnosticar la conectividad sin
+// depender de la libreria (que envuelve los fallos de red).
+export const CONFIG = { url: SUPABASE_URL, key: SUPABASE_KEY };
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: {
     // La sesion debe sobrevivir a recargas y renovarse sola: con RLS cerrada

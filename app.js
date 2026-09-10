@@ -6,7 +6,11 @@
 'use strict';
 
 import { supabase } from './supabase.js';
-import { sesionActual, iniciarSesion, cerrarSesion, observarSesion, mensajeDeError } from './auth.js';
+import {
+  sesionActual, iniciarSesion, cerrarSesion, observarSesion, mensajeDeError, probarConexion,
+  cargarPerfil, esAuditor, rolActual, estadoPerfil, limpiarPerfil, ROLES,
+} from './auth.js';
+import { adjuntarSoporte, urlDeSoporte, nombreDeSoporte, validarSoporte } from './soportes.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. PUC — Plan Único de Cuentas (relevantes para el módulo)
@@ -558,6 +562,8 @@ function openLiqModal(domId) {
 function renderLibro(filtro = '') {
   const body = document.getElementById('bodyLibro');
   if (!body) return;
+  // Libro global con enlaces a soportes: reservado al auditor.
+  if (!esAuditor()) { body.innerHTML = ''; return; }
 
   const all = [
     ...S.asientosSocios.map(a => ({ ...a, modLabel: 'Socios', chip: 'chip-socio' })),
@@ -577,7 +583,12 @@ function renderLibro(filtro = '') {
 
   body.innerHTML = lista.map(a => `
     <tr>
-      <td class="mono-cell" style="color:var(--accent);font-size:11.5px">${a.comp}</td>
+      <td class="mono-cell" style="color:var(--accent);font-size:11.5px">
+        ${a.comp}
+        ${a.soporteArchivo ? `<button type="button" class="ver-soporte" data-ruta="${esc(a.soporteArchivo)}"
+             title="Ver documento soporte: ${esc(nombreDeSoporte(a.soporteArchivo))}"
+             style="background:none;border:none;padding:0 0 0 4px;cursor:pointer;color:var(--text-3);font-size:12px">&#128206;</button>` : ''}
+      </td>
       <td style="font-size:12px;color:var(--text-3)">${fmtDate(a.fecha)}</td>
       <td><span class="chip ${a.chip}" style="font-size:11px">${a.modLabel}</span></td>
       <td style="font-size:12.5px;color:var(--text-2);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.desc}</td>
@@ -728,6 +739,9 @@ function fillSocioSel() {
 
 // Show asiento in a target card
 function showAsiento(cardId, compId, bodyId, a) {
+  // El asiento generado es informacion tecnica del auditor; los demas roles
+  // reciben solo la confirmacion de que el registro se guardo.
+  if (!esAuditor()) { avisoGuardado(a.comp); return; }
   const card = document.getElementById(cardId);
   const comp = document.getElementById(compId);
   const body = document.getElementById(bodyId);
@@ -758,6 +772,7 @@ function showAlerta(wrapperId, boxId, alerta) {
 
 // Export CSV (all asientos)
 function exportarCSV() {
+  if (!esAuditor()) return;
   const all = [
     ...S.asientosSocios, ...S.asientosVentas,
     ...S.asientosNomina, ...S.asientosOp
@@ -815,6 +830,10 @@ const CHIP_POR_TIPO = {
   dotacion: 'chip-gasto',
   repuesto: 'chip-cxc', multa: 'chip-cxc', prestamo: 'chip-cxc',
 };
+const MODULO_ETIQUETA = {
+  socios: 'Socios', ventas: 'Ventas', nomina: 'Nomina', operacion: 'Operacion',
+};
+
 const CHIP_POR_MODULO = {
   socios: 'chip-socio', ventas: 'chip-venta',
   nomina: 'chip-nomina', operacion: 'chip-gasto',
@@ -853,6 +872,7 @@ function asientoDesdeDB(row) {
     modalidad: row.modalidad,
     clasificacion: row.clasificacion,
     soporte: row.soporte,
+    soporteArchivo: row.soporte_archivo,
     nit: row.tercero_nit,
     vencimiento: row.vencimiento,
     tasa: (row.tasa === null || row.tasa === undefined) ? null : Number(row.tasa),
@@ -864,11 +884,77 @@ function asientoDesdeDB(row) {
 }
 
 /**
+ * Traduce los errores de Postgres que llegan por PostgREST a algo accionable.
+ * Sin esto, un fallo de integridad sale como
+ * 'violates foreign key constraint "asiento_detalles_cuenta_fkey"',
+ * que no le dice nada a quien no programa.
+ */
+function mensajeDeErrorBD(err) {
+  const codigo  = err?.code || '';
+  const detalle = String(err?.details || '');
+  const mensaje = String(err?.message || err || '');
+
+  // 23503 - clave foranea.
+  // OJO: Supabase censura los valores en `details` ('Key is not present in
+  // table "x"', sin la columna ni el valor), asi que no se puede extraer el
+  // codigo de cuenta de ahi. Se distingue por el nombre de la restriccion y
+  // por el tipo de operacion, ambos si presentes en `message`.
+  if (codigo === '23503') {
+    const esCuenta  = /cuenta_fkey/.test(mensaje);
+    const esBorrado = /^update or delete/i.test(mensaje);
+
+    if (esCuenta && esBorrado) {
+      return 'No se puede eliminar esa cuenta del catalogo: ya tiene movimientos '
+           + 'registrados. Para renumerarla usa UPDATE sobre plan_cuentas, que '
+           + 'arrastra los asientos al codigo nuevo.';
+    }
+    if (esCuenta) {
+      return 'El asiento usa una cuenta que no existe en el plan de cuentas. '
+           + 'Agregala al catalogo antes de registrar este movimiento.';
+    }
+    if (esBorrado) {
+      return 'No se puede eliminar ese registro: otros datos dependen de el.';
+    }
+    return 'El registro apunta a un dato que no existe en la base de datos.';
+  }
+
+  // 23505 - unicidad
+  if (codigo === '23505') {
+    if (/comprobante/.test(detalle + mensaje)) {
+      return 'Ya existe un asiento con ese numero de comprobante. '
+           + 'Recarga la pagina para sincronizar el consecutivo e intenta de nuevo.';
+    }
+    if (/codigo/.test(detalle)) return 'Ya existe una cuenta con ese codigo en el catalogo.';
+    return 'Ya existe un registro con esos datos. ' + detalle;
+  }
+
+  if (codigo === '23514') return 'Un valor no cumple una regla de la base de datos. ' + detalle;
+  if (codigo === '23502') return 'Falta un dato obligatorio. ' + detalle;
+  if (codigo === '42501') return 'Tu sesion no tiene permiso para esta operacion.';
+  if (codigo === 'PGRST301' || /JWT|token/i.test(mensaje)) {
+    return 'Tu sesion expiro. Cierra sesion y vuelve a entrar.';
+  }
+  return mensaje;
+}
+
+/**
  * Guarda un asiento: primero la cabecera en `asientos`, recupera el id
  * generado y con él inserta las líneas en `asiento_detalles`.
  * Idéntico para los cuatro módulos.
  */
 async function guardarAsientoDB(a, meta) {
+  // Comprobacion local contra el catalogo ya cargado. La clave foranea de
+  // sql/007 es la garantia real, pero Postgres no revela que cuenta fallo
+  // (Supabase censura los valores), asi que se detecta aqui para poder
+  // nombrarla en el aviso.
+  if (CUENTAS.size) {
+    const desconocidas = [...new Set(a.lineas.map(l => l.cuenta))].filter(c => !CUENTAS.has(c));
+    if (desconocidas.length) {
+      throw new Error('El asiento usa cuentas que no estan en el plan de cuentas: '
+        + desconocidas.join(', ') + '. Agregalas al catalogo antes de registrarlo.');
+    }
+  }
+
   const { data: cabecera, error: errCab } = await supabase
     .from('asientos')
     .insert({
@@ -915,35 +1001,68 @@ async function guardarAsientoDB(a, meta) {
 /**
  * Envoltorio común de los botones de guardado: bloquea el botón, persiste y,
  * si la BD falla, revierte lo que el generador ya había dejado en memoria.
- * @returns {Promise<boolean>} true si se guardó.
+ * @returns {Promise<number|null>} id del asiento creado, o null si fallo.
  */
 async function guardarConFeedback(btn, a, meta, arrayEnMemoria) {
   const htmlOriginal = btn ? btn.innerHTML : '';
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
 
   try {
-    await guardarAsientoDB(a, meta);
-    return true;
+    // Se devuelve el id porque el adjunto se sube a una carpeta con ese id.
+    return await guardarAsientoDB(a, meta);
   } catch (err) {
     console.error('[Supabase] No se pudo guardar el asiento:', err);
-    alert('No se pudo guardar en la base de datos:\n' + (err.message || err));
+    alert('No se pudo guardar en la base de datos:' + String.fromCharCode(10) + mensajeDeErrorBD(err));
     if (arrayEnMemoria) arrayEnMemoria.pop();
     S.seq--;
-    return false;
+    return null;
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = htmlOriginal; }
   }
 }
 
+/**
+ * Sube el documento soporte de un asiento recien creado, si el usuario
+ * adjunto uno. Lo usan los cuatro modulos.
+ *
+ * El adjunto va DESPUES de crear el asiento porque se archiva en una carpeta
+ * con su id. Si la subida falla el asiento se conserva y se avisa: perder un
+ * apunte contable cuadrado por un fallo al adjuntar seria peor.
+ *
+ * @param {string} inputId  id del <input type="file"> del formulario
+ * @param {number} asientoId id devuelto al guardar
+ * @param {HTMLElement|null} btn boton a bloquear mientras sube
+ */
+async function subirAdjuntoSiHay(inputId, asientoId, btn) {
+  const input = document.getElementById(inputId);
+  const archivo = input?.files?.[0];
+  if (!archivo) return;
+
+  const htmlBoton = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Subiendo soporte...'; }
+
+  const res = await adjuntarSoporte(archivo, asientoId);
+
+  if (btn) { btn.disabled = false; btn.innerHTML = htmlBoton; }
+  if (input) input.value = '';
+
+  if (!res.ok) {
+    alert('El asiento se guardo correctamente, pero el documento NO se adjunto:'
+      + String.fromCharCode(10) + res.error
+      + String.fromCharCode(10) + String.fromCharCode(10)
+      + 'Puedes volver a adjuntarlo mas tarde.');
+  }
+}
+
 /** Lee de la BD los asientos de un módulo, con sus líneas. */
 async function leerAsientos(moduloBD) {
+  // Se piden todas las columnas en vez de enumerarlas: al listarlas una a una,
+  // cualquier columna anadida por una migracion pendiente hacia fallar la
+  // consulta entera y dejaba las tres tablas en estado de error, no solo la
+  // funcion nueva. Con `*` la app sigue viva aunque falte una migracion.
   const { data, error } = await supabase
     .from('asientos')
-    .select(`
-      id, comprobante, fecha, descripcion, modulo, tercero, tipo, modalidad,
-      clasificacion, soporte, valor, tercero_nit, vencimiento, tasa,
-      asiento_detalles ( id, cuenta, descripcion, debito, credito, tipo_normativa )
-    `)
+    .select('*, asiento_detalles ( * )')
     .eq('modulo', moduloBD)
     .order('fecha', { ascending: false })
     .order('id', { ascending: false });
@@ -957,7 +1076,20 @@ async function leerAsientos(moduloBD) {
 
 /** Fila desplegable con el asiento completo, común a las tres tablas. */
 function filaDetalle(a, columnas) {
+  // Detalle contable reservado al auditor. Para los demas roles ni se genera,
+  // asi el contenido tampoco queda escondido en el DOM.
+  if (!esAuditor()) return '';
   const n = a.lineas.length;
+  // El bucket es privado: el enlace se firma al hacer clic, no al pintar.
+  const soporte = a.soporteArchivo
+    ? `<div style="padding:8px 0 2px">
+         <button type="button" class="ver-soporte" data-ruta="${esc(a.soporteArchivo)}"
+                 style="background:none;border:none;padding:0;cursor:pointer;font-size:12px;
+                        color:var(--accent);text-decoration:underline">
+           Ver documento soporte (${esc(nombreDeSoporte(a.soporteArchivo))})
+         </button>
+       </div>`
+    : '';
   return `
     <tr>
       <td colspan="${columnas}" style="padding:0 14px 10px">
@@ -966,6 +1098,7 @@ function filaDetalle(a, columnas) {
             ▸ Ver detalle del asiento contable · ${n} línea${n !== 1 ? 's' : ''} (Opcional)
           </summary>
           ${htmlAsiento(a)}
+          ${soporte}
         </details>
       </td>
     </tr>`;
@@ -1242,6 +1375,22 @@ function siguienteIdDomiciliario() {
   return 'D' + String(siguiente).padStart(3, '0');
 }
 
+/**
+ * Contadores de la barra lateral. Estaban fijos en `0` en el HTML y solo
+ * nomina se actualizaba, asi que la barra decia 0 mientras la tabla mostraba
+ * registros.
+ */
+function actualizarBadges() {
+  const poner = (id, n) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(n);
+  };
+  poner('badge-socios', S.asientosSocios.length);
+  poner('badge-clientes', S.asientosVentas.length);
+  poner('badge-operacion', S.asientosOp.length);
+  poner('badge-nomina', S.domiciliarios.length);
+}
+
 /** Recarga todo desde Supabase y repinta la interfaz completa. */
 async function recargarTodo() {
   // Maestros y catalogo van primero: renderNomina() y recalcularDerivados()
@@ -1253,10 +1402,13 @@ async function recargarTodo() {
   updateKpiSocios();
   updateKpiVentas();
   updateKpiOp();
+  actualizarBadges();
   renderNomina();
   fillDomSel();
   updateImpuestos();
   renderLibro();
+  // Solo si ya se consulto alguna vez: evita una consulta extra al arrancar.
+  if (document.getElementById('bodyDiario')?.dataset.consultado === '1') renderDiario();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1371,16 +1523,319 @@ function mostrarAlertaFiscalSocio(tipo, soporte) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 11.d LIBRO DIARIO
+// ─────────────────────────────────────────────────────────────────────────────
+// Vista cronologica a nivel de LINEA contable, a diferencia del Libro Global
+// de la pestana Impuestos, que resume un asiento por fila.
+//
+// Sobre el JOIN con plan_cuentas: PostgREST solo puede incrustar una tabla
+// relacionada si existe una clave foranea, y `asiento_detalles.cuenta` es texto
+// libre sin FK hacia `plan_cuentas.codigo`. El nombre de cada cuenta se resuelve
+// con el catalogo que ya esta cargado en memoria (CUENTAS), que se llena de esa
+// misma tabla al arrancar. Mismo resultado, sin una consulta extra por fila.
+
+/** Primer y ultimo dia del mes en curso, en formato YYYY-MM-DD. */
+function rangoMesActual() {
+  const hoy = new Date();
+  const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  const ultimo = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+  const iso = (d) => d.getFullYear() + '-'
+    + String(d.getMonth() + 1).padStart(2, '0') + '-'
+    + String(d.getDate()).padStart(2, '0');
+  return { desde: iso(primero), hasta: iso(ultimo) };
+}
+
+/**
+ * Consulta los asientos del periodo con sus lineas.
+ * @param {string} desde  YYYY-MM-DD inclusive
+ * @param {string} hasta  YYYY-MM-DD inclusive
+ * @param {string} modulo '' para todos
+ */
+async function consultarDiario(desde, hasta, modulo) {
+  let consulta = supabase
+    .from('asientos')
+    .select('*, asiento_detalles ( * )')
+    .gte('fecha', desde)
+    .lte('fecha', hasta)
+    .order('fecha', { ascending: true })
+    .order('id', { ascending: true });
+
+  if (modulo) consulta = consulta.eq('modulo', modulo);
+
+  const { data, error } = await consulta;
+  if (error) {
+    console.error('[Diario] Error al consultar:', error);
+    return { filas: null, error };
+  }
+  return { filas: data, error: null };
+}
+
+/** Pinta el Libro Diario con el periodo elegido en los filtros. */
+async function renderDiario() {
+  if (!esAuditor()) return;   // modulo reservado: ni siquiera se consulta
+  const body = document.getElementById('bodyDiario');
+  const foot = document.getElementById('footDiario');
+  if (!body) return;
+
+  const desde = document.getElementById('diarioDesde')?.value;
+  const hasta = document.getElementById('diarioHasta')?.value;
+  const modulo = document.getElementById('diarioModulo')?.value || '';
+
+  if (!desde || !hasta) {
+    body.innerHTML = '<tr><td colspan="6" class="empty-row">Indica las dos fechas del período.</td></tr>';
+    if (foot) foot.innerHTML = '';
+    return;
+  }
+  if (desde > hasta) {
+    body.innerHTML = '<tr><td colspan="6" class="empty-row" style="color:var(--red)">La fecha inicial es posterior a la final.</td></tr>';
+    if (foot) foot.innerHTML = '';
+    return;
+  }
+
+  body.innerHTML = '<tr><td colspan="6" class="empty-row">Consultando…</td></tr>';
+  if (foot) foot.innerHTML = '';
+  body.dataset.consultado = '1';   // recargarTodo() lo usa para refrescar esta vista
+
+  const { filas, error } = await consultarDiario(desde, hasta, modulo);
+
+  if (error) {
+    body.innerHTML = `<tr><td colspan="6" class="empty-row" style="color:var(--red)">
+      ⚠ No se pudo consultar el libro: ${esc(error.message)}</td></tr>`;
+    return;
+  }
+
+  if (!filas.length) {
+    body.innerHTML = '<tr><td colspan="6" class="empty-row">Sin asientos en el período seleccionado.</td></tr>';
+    const badge = document.getElementById('badge-diario');
+    if (badge) badge.textContent = '0';
+    return;
+  }
+
+  let totalDebito = 0;
+  let totalCredito = 0;
+  const bloques = [];
+
+  for (const row of filas) {
+    const a = asientoDesdeDB(row);
+    const nLineas = a.lineas.length;
+
+    // Cabecera del asiento: agrupa visualmente sus lineas.
+    bloques.push(`
+      <tr style="background:var(--bg-2, rgba(255,255,255,.02))">
+        <td style="font-size:12px;color:var(--text-2)">${fmtDate(row.fecha)}</td>
+        <td class="mono-cell" style="font-size:11px;color:var(--accent)">
+          ${esc(a.comp)}
+          ${a.soporteArchivo ? `<button type="button" class="ver-soporte" data-ruta="${esc(a.soporteArchivo)}"
+               title="Ver documento soporte"
+               style="background:none;border:none;padding:0 0 0 4px;cursor:pointer;color:var(--text-3)">&#128206;</button>` : ''}
+        </td>
+        <td colspan="2" style="font-size:12px;color:var(--text-2)">
+          <span class="chip ${a.chip}" style="font-size:10.5px">${esc(MODULO_ETIQUETA[row.modulo] || row.modulo)}</span>
+          <strong style="margin-left:6px">${esc(a.nombre) || '—'}</strong>
+          <span style="color:var(--text-3)"> · ${esc(a.desc) || '—'}</span>
+        </td>
+        <td colspan="2" class="text-right" style="font-size:11px;color:var(--text-3)">
+          ${nLineas} línea${nLineas !== 1 ? 's' : ''}
+        </td>
+      </tr>`);
+
+    for (const l of a.lineas) {
+      totalDebito += l.debito;
+      totalCredito += l.credito;
+      const esCredito = l.debito === 0 && l.credito > 0;
+      bloques.push(`
+        <tr>
+          <td></td>
+          <td></td>
+          <td style="${esCredito ? 'padding-left:22px;' : ''}font-size:12px">
+            <strong>${esc(nombreCuenta(l.cuenta))}</strong>
+            <div class="mono-cell" style="font-size:10.5px;color:var(--text-3)">Cód. ${esc(l.cuenta)}</div>
+          </td>
+          <td style="font-size:12px;color:var(--text-2)">${esc(l.desc)}</td>
+          <td class="text-right mono-cell">${l.debito > 0 ? fmt(l.debito) : '<span style="color:var(--text-3)">—</span>'}</td>
+          <td class="text-right mono-cell">${l.credito > 0 ? fmt(l.credito) : '<span style="color:var(--text-3)">—</span>'}</td>
+        </tr>`);
+    }
+  }
+
+  body.innerHTML = bloques.join('');
+
+  // Sumatorias del periodo y validacion de partida doble.
+  const cuadra = Math.abs(totalDebito - totalCredito) < 0.01;
+  const color = cuadra ? 'var(--green)' : 'var(--red)';
+
+  if (foot) {
+    foot.innerHTML = `
+      <tr style="border-top:2px solid var(--border)">
+        <td colspan="4" style="font-weight:700;font-size:12.5px">
+          TOTALES DEL PERÍODO · ${filas.length} asiento${filas.length !== 1 ? 's' : ''}
+        </td>
+        <td class="text-right mono-cell" style="font-weight:700;color:${color}">${fmt(totalDebito)}</td>
+        <td class="text-right mono-cell" style="font-weight:700;color:${color}">${fmt(totalCredito)}</td>
+      </tr>
+      <tr>
+        <td colspan="6" style="padding-top:10px;color:${color};font-size:12.5px;font-weight:600">
+          ${cuadra
+            ? '✓ Partida doble correcta — Débitos = Créditos'
+            : '⚠ Descuadre de ' + fmt(Math.abs(totalDebito - totalCredito)) + ' — revisar los asientos del período'}
+        </td>
+      </tr>`;
+  }
+
+  const badge = document.getElementById('badge-diario');
+  if (badge) badge.textContent = String(filas.length);
+}
+
+/** Exporta a CSV exactamente lo que se ve en el Libro Diario. */
+async function exportarDiario() {
+  if (!esAuditor()) return;
+  const desde = document.getElementById('diarioDesde')?.value;
+  const hasta = document.getElementById('diarioHasta')?.value;
+  const modulo = document.getElementById('diarioModulo')?.value || '';
+  if (!desde || !hasta) { alert('Indica las dos fechas del período.'); return; }
+
+  const { filas, error } = await consultarDiario(desde, hasta, modulo);
+  if (error) { alert('No se pudo exportar: ' + error.message); return; }
+  if (!filas.length) { alert('No hay asientos en el período.'); return; }
+
+  const escaparCsv = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const encabezado = ['Fecha', 'Comprobante', 'Modulo', 'Tercero', 'Concepto',
+                      'Cuenta', 'Nombre cuenta', 'Detalle linea', 'Debito', 'Credito'];
+
+  let totD = 0, totC = 0;
+  const lineas = [];
+  for (const row of filas) {
+    const a = asientoDesdeDB(row);
+    for (const l of a.lineas) {
+      totD += l.debito; totC += l.credito;
+      lineas.push([
+        row.fecha, a.comp, row.modulo, a.nombre, a.desc,
+        l.cuenta, nombreCuenta(l.cuenta), l.desc, l.debito || 0, l.credito || 0,
+      ].map(escaparCsv).join(','));
+    }
+  }
+  lineas.push(['', '', '', '', '', '', '', 'TOTALES', totD, totC].map(escaparCsv).join(','));
+
+  const csv = [encabezado.map(escaparCsv).join(','), ...lineas].join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement('a');
+  enlace.href = url;
+  enlace.download = `LibroDiario_${desde}_a_${hasta}.csv`;
+  enlace.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 11.c CONTROL DE SESION
 // ─────────────────────────────────────────────────────────────────────────────
 // La app no consulta nada sin sesion: con las politicas RLS de sql/005 la
 // clave publica del navegador ya no da acceso a ninguna tabla.
 
+// Control de acceso por rol. PERMISOS es el UNICO lugar a editar para ajustar
+// que ve cada perfil.
+//
+// OJO: esto gobierna la INTERFAZ. Ocultar un bloque no impide que alguien con
+// conocimientos tecnicos consulte los datos desde la consola del navegador; la
+// proteccion de datos vive en las politicas RLS (sql/005 y sql/008).
+const PERMISOS = {
+  // Lectura contable y configuracion: reservadas al auditor.
+  tabsSoloAuditor: ['diario', 'impuestos'],
+  // Parametros legales: visibles para todos, editables solo por el auditor.
+  camposConfig: ['smlv', 'auxTransporte', 'auxRodamiento', 'diasPeriodo'],
+};
+
+/** true si el rol actual puede abrir esa pestana. */
+function puedeVerTab(tab) {
+  return esAuditor() || !PERMISOS.tabsSoloAuditor.includes(tab);
+}
+
+/** Cambia de pestana sin simular un click (no depende del orden de los listeners). */
+function activarPestana(tab) {
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
+}
+
+/**
+ * Aplica a la interfaz los permisos del rol cargado. Se puede llamar varias
+ * veces. Si el rol no se pudo verificar, auth.js ya asigno `comercial`
+ * (minimo privilegio) y aqui solo se avisa.
+ */
+function aplicarPermisos() {
+  const auditor = esAuditor();
+  const rol = rolActual() || 'pendiente';
+
+  // styles.css oculta todo .solo-auditor mientras data-rol no sea "auditor".
+  document.documentElement.dataset.rol = rol;
+
+  PERMISOS.camposConfig.forEach(id => {
+    const campo = document.getElementById(id);
+    if (!campo) return;
+    campo.disabled = !auditor;
+    campo.title = auditor ? '' : 'Solo un auditor puede modificar los parametros legales.';
+  });
+
+  const activa = document.querySelector('.nav-item.active');
+  if (activa && !puedeVerTab(activa.dataset.tab)) activarPestana('socios');
+
+  const etiqueta = document.getElementById('sesionRol');
+  if (etiqueta) {
+    etiqueta.textContent = rol === ROLES.AUDITOR ? 'Auditor'
+      : rol === ROLES.COMERCIAL ? 'Comercial' : '';
+  }
+
+  const estado = estadoPerfil();
+  const aviso = document.getElementById('avisoRol');
+  if (!aviso) return;
+  if (estado.origen === 'bd' || estado.origen === 'sin-cargar') {
+    aviso.style.display = 'none';
+    aviso.innerHTML = '';
+  } else {
+    aviso.innerHTML = '<strong>Permisos restringidos.</strong> No se pudo verificar tu rol: '
+      + esc(estado.detalle || 'motivo desconocido.')
+      + ' Mientras tanto se aplican los permisos del perfil comercial.'
+      + '<button type="button" id="btnReintentarRol">Reintentar</button>';
+    aviso.style.display = 'block';
+  }
+}
+
+/**
+ * Confirmacion breve para los roles que no ven el asiento generado: sin ella,
+ * en Nomina no quedaria ninguna senal de que el registro se guardo.
+ */
+function avisoGuardado(comprobante) {
+  let toast = document.getElementById('toastGuardado');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'toastGuardado';
+    toast.setAttribute('role', 'status');
+    toast.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:9000;padding:10px 14px;'
+      + 'border-radius:8px;font-size:12.5px;font-weight:600;background:var(--card,#1b1b1b);'
+      + 'border:1px solid var(--green,#3ba55d);color:var(--green,#3ba55d);'
+      + 'box-shadow:0 6px 20px rgba(0,0,0,.35)';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = '✓ Registro guardado · ' + comprobante;
+  toast.style.display = 'block';
+  clearTimeout(avisoGuardado.temporizador);
+  avisoGuardado.temporizador = setTimeout(() => { toast.style.display = 'none'; }, 3500);
+}
+
 let sesionMontada = false;
+// Rol con el que se pintaron las tablas por ultima vez. Decide si un evento
+// de sesion debe volver a pintar (cambio real de rol) o puede ignorarse.
+let rolPintado = null;
 
 function mostrarLogin(mostrar) {
   const pantalla = document.getElementById('pantallaLogin');
-  if (pantalla) pantalla.hidden = !mostrar;
+  if (pantalla) {
+    // OJO: el atributo `hidden` NO basta aqui. El contenedor lleva su display
+    // en un estilo en linea, y un estilo en linea gana siempre al [hidden] del
+    // navegador: la pantalla se quedaba encima de la app ya cargada y parecia
+    // que el login habia fallado, cuando la sesion si se habia creado.
+    pantalla.style.display = mostrar ? 'flex' : 'none';
+    pantalla.hidden = !mostrar;          // se mantiene por semantica/accesibilidad
+  }
   const info = document.getElementById('sesionInfo');
   if (info) info.hidden = mostrar;
 }
@@ -1389,21 +1844,58 @@ function mostrarLogin(mostrar) {
 async function aplicarSesion(session) {
   if (!session) {
     sesionMontada = false;
+    rolPintado = null;
+    limpiarPerfil();
+    aplicarPermisos();
     mostrarLogin(true);
     return;
   }
 
+  // Otro usuario en la misma pestana: lo cargado para el anterior no sirve.
+  const perfilPrevio = estadoPerfil().userId;
+  if (perfilPrevio && perfilPrevio !== session.user.id) sesionMontada = false;
+
   const email = document.getElementById('sesionEmail');
   if (email) email.textContent = session.user?.email || 'Sesion activa';
+
+  // El rol se resuelve ANTES de retirar la pantalla de acceso: asi no hay ni
+  // un instante con contenido tecnico visible para quien no debe verlo.
+  await cargarPerfil(session.user.id);
+  aplicarPermisos();
   mostrarLogin(false);
 
   // onAuthStateChange tambien dispara al renovar el token; sin esta guarda
   // se recargaria toda la interfaz cada vez que caduca el access token.
-  if (sesionMontada) return;
+  if (sesionMontada) {
+    // ...salvo que el rol haya cambiado respecto al usado para pintar (por
+    // ejemplo, se ejecuto la migracion de roles y luego se renovo el token):
+    // las tablas dependen del rol.
+    //
+    // Se compara con rolPintado y NO con el rol al inicio de esta llamada: al
+    // cargar la pagina, el arranque y onAuthStateChange entran aqui casi a la
+    // vez, ambas ven el rol aun vacio, y la segunda recargaba todo otra vez.
+    if (rolPintado !== rolActual()) {
+      rolPintado = rolActual();
+      await recargarTodo();
+    }
+    return;
+  }
   sesionMontada = true;
+  rolPintado = rolActual();   // sincrono, antes del primer await
 
-  await syncSeqComprobante();
-  await recargarTodo();
+  try {
+    await syncSeqComprobante();
+    await recargarTodo();
+  } catch (err) {
+    // Si la carga falla el usuario veria la app vacia sin saber por que.
+    // Se marca como no montada para que un reintento vuelva a cargar.
+    sesionMontada = false;
+    console.error('[App] Fallo la carga inicial tras iniciar sesion:', err);
+    alert('Iniciaste sesion, pero no se pudieron cargar los datos:'
+      + String.fromCharCode(10) + (err?.message || err)
+      + String.fromCharCode(10) + String.fromCharCode(10)
+      + 'Revisa que se hayan ejecutado los archivos de sql/ en Supabase.');
+  }
 }
 
 function montarControlesSesion() {
@@ -1424,11 +1916,77 @@ function montarControlesSesion() {
       // La carga la dispara observarSesion(); aqui solo se limpia el campo.
       document.getElementById('loginPassword').value = '';
     } catch (err) {
+      // Se registra el error crudo: el mensaje traducido puede perder detalle.
       console.error('[Auth] Fallo el inicio de sesion:', err);
       if (cajaError) { cajaError.textContent = mensajeDeError(err); cajaError.hidden = false; }
+
+      // Si parece un fallo de red, se comprueba de verdad si Supabase responde
+      // y se anade el resultado, en vez de dejar al usuario adivinando.
+      if (err?.name === 'AuthRetryableFetchError' || /failed to fetch|networkerror|load failed/i.test(String(err?.message || ''))) {
+        const diagnostico = await probarConexion();
+        if (cajaError) cajaError.textContent += ' -- Diagnostico: ' + diagnostico;
+      }
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = 'Entrar'; }
     }
+  });
+
+  // Diagnostico de conectividad, en pantalla y sin consola.
+  document.getElementById('btnProbarConexion')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnProbarConexion');
+    const caja = document.getElementById('loginDiagnostico');
+    if (!caja) return;
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Probando...'; }
+    caja.hidden = false;
+    caja.textContent = 'Comprobando...';
+
+    const resultado = await probarConexion();
+    const alcanza = resultado.startsWith('Supabase SI responde');
+
+    caja.innerHTML =
+      '<div style="color:' + (alcanza ? 'var(--green,#3ba55d)' : 'var(--yellow,#d5a439)') + ';font-weight:600;margin-bottom:5px">'
+      + (alcanza ? 'Conexion correcta' : 'Problema de conexion') + '</div>'
+      + '<div>' + esc(resultado) + '</div>'
+      + (alcanza
+          ? '<div style="margin-top:6px;color:var(--text-3,#888)">Si aun no entras, el usuario no existe o su correo no esta confirmado (Supabase - Authentication - Users).</div>'
+          : '<div style="margin-top:6px;color:var(--text-3,#888)">Causa habitual: una extension del navegador (bloqueador de anuncios o de rastreo) esta bloqueando la peticion. Prueba en una ventana de incognito con las extensiones desactivadas.</div>');
+
+    if (btn) { btn.disabled = false; btn.textContent = 'Probar conexion de nuevo'; }
+  });
+
+  // Reintentar la verificacion del rol desde el aviso de permisos restringidos.
+  document.addEventListener('click', async (e) => {
+    const boton = e.target.closest('#btnReintentarRol');
+    if (!boton) return;
+    const { userId } = estadoPerfil();
+    if (!userId) return;
+    boton.disabled = true;
+    boton.textContent = 'Verificando...';
+    await cargarPerfil(userId, { forzar: true });
+    aplicarPermisos();
+    rolPintado = rolActual();
+    await recargarTodo();   // las tablas dependen del rol (detalle de asientos)
+  });
+
+  // Ver / ocultar la contrasena escrita.
+  document.getElementById('btnVerPassword')?.addEventListener('click', () => {
+    const campo = document.getElementById('loginPassword');
+    const btn = document.getElementById('btnVerPassword');
+    if (!campo || !btn) return;
+    const visible = campo.type === 'text';
+    campo.type = visible ? 'password' : 'text';
+    btn.setAttribute('aria-pressed', String(!visible));
+    const etiqueta = visible ? 'Mostrar contrasena' : 'Ocultar contrasena';
+    btn.setAttribute('aria-label', etiqueta);
+    btn.title = etiqueta;
+    // styles.css fija display:block en los svg, asi que el atributo `hidden`
+    // no los oculta: hay que tocar el estilo en linea.
+    const ojo = document.getElementById('iconoOjoAbierto');
+    const tachado = document.getElementById('iconoOjoTachado');
+    if (ojo) ojo.style.display = visible ? '' : 'none';
+    if (tachado) tachado.style.display = visible ? 'none' : '';
+    campo.focus();
   });
 
   document.getElementById('btnCerrarSesion')?.addEventListener('click', async () => {
@@ -1484,11 +2042,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // ══ NAVEGACIÓN ══
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => {
+      // Control de acceso. Tambien frena los saltos programaticos: la
+      // liquidacion de nomina hace click en Impuestos al terminar.
+      if (!puedeVerTab(btn.dataset.tab)) return;
       document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById(`panel-${btn.dataset.tab}`)?.classList.add('active');
       if (btn.dataset.tab === 'impuestos') { renderLibro(); updateImpuestos(); }
+      if (btn.dataset.tab === 'diario') renderDiario();
       if (btn.dataset.tab === 'nomina') renderNomina();
     });
   });
@@ -1509,6 +2071,17 @@ document.addEventListener('DOMContentLoaded', () => {
       hint.addEventListener('transitionend', () => hint.classList.add('hidden'), { once: true });
     }
   });
+
+  // Aviso inmediato si el archivo elegido no sirve, sin esperar a guardar.
+  ['soporteArchivo', 'soporteArchivoVenta', 'soporteArchivoDom', 'soporteArchivoOp']
+    .forEach(id => {
+      document.getElementById(id)?.addEventListener('change', function () {
+        const archivo = this.files?.[0];
+        if (!archivo) return;
+        const problema = validarSoporte(archivo);
+        if (problema) { alert(problema); this.value = ''; }
+      });
+    });
 
   document.getElementById('btnNuevoSocio')?.addEventListener('click', () => {
     const el = document.getElementById('formSocioWrap');
@@ -1558,6 +2131,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }, S.asientosSocios);
     if (!guardado) return;
 
+    await subirAdjuntoSiHay('soporteArchivo', guardado, btn);
+
     // La tabla se repinta desde la BD (SELECT con JOIN), no desde memoria.
     await renderSocios();
     recalcularDerivados();
@@ -1604,6 +2179,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }, S.asientosVentas);
     if (!guardado) return;
 
+    await subirAdjuntoSiHay('soporteArchivoVenta', guardado, btn);
+
     // La tabla se repinta desde la BD (SELECT con JOIN), no desde memoria.
     await renderVentas();
     recalcularDerivados();
@@ -1648,6 +2225,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // asientoMovDom() ya habia movido dom.cxc en memoria; se recalcula siempre
     // desde la BD para que el saldo refleje solo lo realmente persistido.
     if (!guardado) { recalcularDerivados(); renderNomina(); return; }
+
+    await subirAdjuntoSiHay('soporteArchivoDom', guardado, btn);
 
     await cargarAsientosNomina();
     recalcularDerivados();
@@ -1731,7 +2310,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (error) {
       console.error('[Supabase] No se pudo crear el domiciliario:', error);
-      alert('No se pudo guardar el domiciliario:' + String.fromCharCode(10) + error.message);
+      alert('No se pudo guardar el domiciliario:' + String.fromCharCode(10) + mensajeDeErrorBD(error));
       return;
     }
 
@@ -1783,6 +2362,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }, S.asientosOp);
     if (!guardado) return;
 
+    await subirAdjuntoSiHay('soporteArchivoOp', guardado, btn);
+
     // La tabla se repinta desde la BD (SELECT con JOIN), no desde memoria.
     await renderOp();
     recalcularDerivados();
@@ -1796,6 +2377,40 @@ document.addEventListener('DOMContentLoaded', () => {
       const el = document.getElementById(id); if (el) el.value = '';
     });
     document.getElementById('retePreview')?.classList.add('hidden');
+  });
+
+  // ══ DOCUMENTOS SOPORTE ══
+  // Delegado en document: las filas de las tablas se repintan en cada carga.
+  document.addEventListener('click', async (e) => {
+    const boton = e.target.closest('.ver-soporte');
+    if (!boton) return;
+    e.preventDefault();
+
+    const texto = boton.textContent;
+    boton.disabled = true;
+    boton.textContent = 'Generando enlace...';
+
+    const res = await urlDeSoporte(boton.dataset.ruta);
+
+    boton.disabled = false;
+    boton.textContent = texto;
+
+    if (!res.ok) { alert('No se pudo abrir el documento: ' + res.error); return; }
+    window.open(res.url, '_blank', 'noopener');
+  });
+
+  // ══ LIBRO DIARIO ══
+  {
+    const rango = rangoMesActual();
+    const dDesde = document.getElementById('diarioDesde');
+    const dHasta = document.getElementById('diarioHasta');
+    if (dDesde && !dDesde.value) dDesde.value = rango.desde;
+    if (dHasta && !dHasta.value) dHasta.value = rango.hasta;
+  }
+  document.getElementById('btnConsultarDiario')?.addEventListener('click', renderDiario);
+  document.getElementById('btnExportDiario')?.addEventListener('click', exportarDiario);
+  ['diarioDesde', 'diarioHasta', 'diarioModulo'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', renderDiario);
   });
 
   // ══ FILTRO LIBRO ══

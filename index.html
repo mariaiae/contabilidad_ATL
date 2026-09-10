@@ -82,7 +82,20 @@
         <span class="nav-badge" id="badge-operacion">0</span>
       </button>
 
-      <button class="nav-item" data-tab="impuestos" id="nav-impuestos">
+      <button class="nav-item solo-auditor" data-tab="diario" id="nav-diario">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            <line x1="9" y1="7" x2="16" y2="7" />
+            <line x1="9" y1="11" x2="16" y2="11" />
+          </svg>
+        </span>
+        <span class="nav-label">Libro Diario</span>
+        <span class="nav-badge" id="badge-diario">0</span>
+      </button>
+
+      <button class="nav-item solo-auditor" data-tab="impuestos" id="nav-impuestos">
         <span class="nav-icon">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -111,6 +124,8 @@
            style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border,#2a2a2a)">
         <div id="sesionEmail"
              style="font-size:11px;color:var(--text-3,#888);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+        <div id="sesionRol"
+             style="margin-top:2px;font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--accent,#e8894a)"></div>
         <button id="btnCerrarSesion" type="button"
                 style="margin-top:6px;width:100%;padding:6px 8px;font-size:11px;cursor:pointer;
                        border-radius:6px;border:1px solid var(--border,#333);
@@ -123,6 +138,9 @@
 
   <!-- ══════════════ MAIN ══════════════ -->
   <main class="main-content">
+
+    <!-- Control de acceso: solo aparece si el rol no pudo verificarse -->
+    <div id="avisoRol" class="aviso-rol" role="alert" style="display:none"></div>
 
     <!-- ═══════════════════════════════════════════
          TAB 1 — SOCIOS
@@ -269,7 +287,7 @@
       </div>
 
       <!-- Asiento generado socios -->
-      <div class="card asiento-display hidden" id="asientoSocios">
+      <div class="card asiento-display hidden solo-auditor" id="asientoSocios">
         <div class="card-header">
           <span class="card-title">Asiento Contable Generado</span>
           <span class="asiento-comprobante" id="compSocios"></span>
@@ -379,6 +397,11 @@
               <input type="text" class="field-input" id="descVenta"
                 placeholder="Ej: Servicio de domicilios – sem. 32" />
             </div>
+            <div class="form-group">
+              <label for="soporteArchivoVenta">Adjunta documento soporte</label>
+              <input type="file" id="soporteArchivoVenta" class="form-control" accept=".pdf,.png,.jpg,.jpeg" />
+              <small style="color: var(--text-muted); font-size: 11px;">Factura de venta o nota crédito. PDF, PNG o JPG.</small>
+            </div>
             <button class="btn-primary full" id="btnGuardarVenta">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
@@ -418,7 +441,7 @@
         </div>
       </div>
 
-      <div class="card asiento-display hidden" id="asientoVentas">
+      <div class="card asiento-display hidden solo-auditor" id="asientoVentas">
         <div class="card-header">
           <span class="card-title">Asiento Contable Generado</span>
           <span class="asiento-comprobante" id="compVentas"></span>
@@ -578,6 +601,11 @@
               <input type="date" class="field-input" id="polizaHasta" />
             </div>
           </div>
+          <div class="form-group">
+            <label for="soporteArchivoDom">Adjunta documento soporte</label>
+            <input type="file" id="soporteArchivoDom" class="form-control" accept=".pdf,.png,.jpg,.jpeg" />
+            <small style="color: var(--text-muted); font-size: 11px;">Comparendo, póliza o factura del gasto. PDF, PNG o JPG.</small>
+          </div>
           <button class="btn-primary" id="btnProcesarMovDom">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
@@ -592,7 +620,7 @@
       <div id="alertaDomWrapper" class="hidden">
         <div class="alerta-box" id="alertaDom"></div>
       </div>
-      <div class="card asiento-display hidden" id="asientoDom">
+      <div class="card asiento-display hidden solo-auditor" id="asientoDom">
         <div class="card-header">
           <span class="card-title">Asiento Contable</span>
           <span class="asiento-comprobante" id="compDom"></span>
@@ -698,6 +726,11 @@
               <label class="field-label">Descripción / Detalle</label>
               <input type="text" class="field-input" id="descOp" placeholder="Descripción del gasto" />
             </div>
+            <div class="form-group">
+              <label for="soporteArchivoOp">Adjunta documento soporte</label>
+              <input type="file" id="soporteArchivoOp" class="form-control" accept=".pdf,.png,.jpg,.jpeg" />
+              <small style="color: var(--text-muted); font-size: 11px;">Factura del proveedor a nombre de ATL — requisito de deducibilidad.</small>
+            </div>
             <button class="btn-primary full" id="btnGuardarOp">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
@@ -737,7 +770,7 @@
         </div>
       </div>
 
-      <div class="card asiento-display hidden" id="asientoOp">
+      <div class="card asiento-display hidden solo-auditor" id="asientoOp">
         <div class="card-header">
           <span class="card-title">Asiento Contable Generado</span>
           <span class="asiento-comprobante" id="compOp"></span>
@@ -749,7 +782,63 @@
     <!-- ═══════════════════════════════════════════
          TAB 5 — IMPUESTOS
     ═══════════════════════════════════════════ -->
-    <section class="tab-panel" id="panel-impuestos">
+    <!-- ═══════════════════════════════════════════
+         TAB — LIBRO DIARIO
+    ═══════════════════════════════════════════ -->
+    <section class="tab-panel solo-auditor" id="panel-diario">
+      <div class="panel-top">
+        <div class="panel-heading">
+          <h1 class="panel-title">Libro Diario</h1>
+          <p class="panel-desc">Registro cronológico de todos los asientos con su detalle por cuenta contable.</p>
+        </div>
+        <button class="btn-ghost-sm" id="btnExportDiario">Exportar CSV</button>
+      </div>
+
+      <div class="card">
+        <div class="card-header" style="flex-wrap:wrap;gap:10px">
+          <span class="card-title">Período consultado</span>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <label class="field-label" for="diarioDesde" style="margin:0">Desde</label>
+            <input type="date" class="field-input" id="diarioDesde"
+                   style="font-size:12px;padding:5px 8px;width:auto" />
+            <label class="field-label" for="diarioHasta" style="margin:0">Hasta</label>
+            <input type="date" class="field-input" id="diarioHasta"
+                   style="font-size:12px;padding:5px 8px;width:auto" />
+            <select class="field-select" id="diarioModulo"
+                    style="font-size:12px;padding:5px 26px 5px 8px;width:auto">
+              <option value="">Todos los módulos</option>
+              <option value="socios">Socios</option>
+              <option value="ventas">Clientes · Ventas</option>
+              <option value="nomina">Trabajadores · Nómina</option>
+              <option value="operacion">Operación · Proveedores</option>
+            </select>
+            <button class="btn-primary" id="btnConsultarDiario"
+                    style="font-size:12px;padding:6px 14px">Consultar</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table" id="tablaDiario">
+            <thead>
+              <tr>
+                <th style="width:110px">Fecha</th>
+                <th style="width:110px">Comprobante</th>
+                <th style="width:210px">Cuenta</th>
+                <th>Descripción</th>
+                <th class="text-right" style="width:150px">Débito</th>
+                <th class="text-right" style="width:150px">Crédito</th>
+              </tr>
+            </thead>
+            <tbody id="bodyDiario">
+              <tr><td colspan="6" class="empty-row">Selecciona un período y pulsa Consultar.</td></tr>
+            </tbody>
+            <tfoot id="footDiario"></tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel solo-auditor" id="panel-impuestos">
       <div class="panel-top">
         <div class="panel-heading">
           <h1 class="panel-title">Impuestos</h1>
@@ -1013,7 +1102,7 @@
        Cubre la aplicacion hasta que hay sesion. Los usuarios se dan de alta
        en Supabase Dashboard -> Authentication -> Users. -->
   <div id="pantallaLogin" hidden
-       style="position:fixed;inset:0;z-index:10000;display:flex;align-items:center;
+       style="position:fixed;inset:0;z-index:10000;display:none;align-items:center;
               justify-content:center;background:var(--bg,#111);padding:20px">
     <form id="formLogin" autocomplete="on"
           style="width:100%;max-width:340px;background:var(--card,#1b1b1b);
@@ -1032,10 +1121,32 @@
 
       <label for="loginPassword"
              style="display:block;font-size:11.5px;color:var(--text-3,#888);margin-bottom:5px">Contraseña</label>
-      <input type="password" id="loginPassword" required autocomplete="current-password"
-             style="width:100%;box-sizing:border-box;padding:9px 11px;margin-bottom:18px;font-size:13px;
-                    border-radius:7px;border:1px solid var(--border,#333);
-                    background:var(--bg-2,#141414);color:var(--text,#eee)" />
+      <div style="position:relative;margin-bottom:18px">
+        <input type="password" id="loginPassword" required autocomplete="current-password"
+               style="width:100%;box-sizing:border-box;padding:9px 40px 9px 11px;font-size:13px;
+                      border-radius:7px;border:1px solid var(--border,#333);
+                      background:var(--bg-2,#141414);color:var(--text,#eee)" />
+        <button type="button" id="btnVerPassword" aria-label="Mostrar contraseña" aria-pressed="false"
+                title="Mostrar contraseña"
+                style="position:absolute;right:4px;top:50%;transform:translateY(-50%);
+                       display:flex;align-items:center;justify-content:center;
+                       width:32px;height:32px;padding:0;cursor:pointer;
+                       background:none;border:none;color:var(--text-3,#888)">
+          <svg id="iconoOjoAbierto" width="17" height="17" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          <svg id="iconoOjoTachado" width="17" height="17" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+               style="display:none">
+            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+            <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+            <line x1="1" y1="1" x2="23" y2="23" />
+          </svg>
+        </button>
+      </div>
 
       <button type="submit" id="btnLogin"
               style="width:100%;padding:10px;font-size:13px;font-weight:600;cursor:pointer;
@@ -1045,6 +1156,17 @@
 
       <div id="loginError" role="alert" hidden
            style="margin-top:14px;font-size:12px;color:var(--red,#e5484d)"></div>
+
+      <!-- Diagnostico en pantalla: evita tener que abrir la consola -->
+      <button type="button" id="btnProbarConexion"
+              style="display:block;margin:16px auto 0;padding:4px;font-size:11.5px;cursor:pointer;
+                     background:none;border:none;text-decoration:underline;color:var(--text-3,#888)">
+        ¿Problemas para entrar? Probar conexión
+      </button>
+      <div id="loginDiagnostico" hidden
+           style="margin-top:10px;padding:9px 11px;border-radius:7px;font-size:11.5px;line-height:1.5;
+                  background:var(--bg-2,#141414);border:1px solid var(--border,#333);
+                  color:var(--text-2,#bbb);word-break:break-word"></div>
     </form>
   </div>
 

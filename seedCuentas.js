@@ -19,6 +19,15 @@
 //        await seedCuentas({ eliminarObsoletas: true })   // tras renumerar
 //   3. Deshacer el paso 1 antes de publicar.
 //
+// RENUMERAR UNA CUENTA (tras sql/007, con clave foranea activa):
+//   NO se hace borrando la vieja e insertando la nueva: la base rechaza el
+//   borrado de una cuenta con movimientos. Se hace con un UPDATE, que gracias
+//   a `on update cascade` arrastra los asientos existentes al codigo nuevo:
+//
+//     update public.plan_cuentas set codigo = '1705' where codigo = '1620';
+//
+//   Despues se actualiza el array de abajo y se reejecuta el seed.
+//
 // Jerarquía por nivel:
 //   1 = Clase   (1 dígito)   2 = Grupo (2 dígitos)   3 = Cuenta (4 dígitos)
 // Solo las cuentas de nivel 3 son `es_cuenta_detalle` (admiten movimiento).
@@ -212,7 +221,18 @@ export async function seedCuentas({ lote = 25, silencioso = false, eliminarObsol
           .delete()
           .in('codigo', sobran);
 
-        if (errBorrar) errores.push('No se pudieron borrar obsoletas: ' + errBorrar.message);
+        if (errBorrar) {
+          // 23503 = clave foranea: alguna de esas cuentas tiene movimientos.
+          // Es la proteccion de sql/007 funcionando, no un fallo del seed.
+          const msg = errBorrar.code === '23503'
+            ? 'No se pudieron borrar ' + sobran.join(', ') + ': al menos una tiene '
+              + 'movimientos registrados. Si la estas renumerando, hazlo con '
+              + "UPDATE plan_cuentas SET codigo='NUEVO' WHERE codigo='VIEJO' "
+              + '(los asientos siguen al codigo nuevo por cascada).'
+            : 'No se pudieron borrar obsoletas: ' + errBorrar.message;
+          console.error('[seed]', msg);
+          errores.push(msg);
+        }
         else { eliminadas = sobran; log('Eliminadas ' + sobran.length + ' obsoletas: ' + sobran.join(', ')); }
       } else {
         log('Sin cuentas obsoletas que eliminar.');
