@@ -7,6 +7,7 @@
 // El bucket NO es público (ver sql/006): la descarga siempre pasa por una URL
 // firmada de vida corta, que solo la app puede pedir con sesión iniciada.
 import { supabase } from './supabase.js';
+import { esAuditor } from './auth.js';
 
 const BUCKET = 'soportes';
 const TAMANO_MAXIMO = 10 * 1024 * 1024;   // 10 MB, igual que el limite del bucket
@@ -61,7 +62,14 @@ export async function adjuntarSoporte(archivo, asientoId) {
 
   if (errSubida) {
     console.error('[Soportes] Fallo la subida:', errSubida);
-    return { ok: false, error: errSubida.message };
+    // sql/014: el comercial solo sube a un asiento existente que aun no tiene soporte.
+    const sinPermiso = /row-level security|violates.*policy|unauthorized|403/i.test(errSubida.message || '');
+    return {
+      ok: false,
+      error: sinPermiso
+        ? 'No tienes permiso para adjuntar un documento a este registro: puede que ya tenga soporte.'
+        : errSubida.message,
+    };
   }
 
   const { error: errFila } = await supabase
@@ -70,9 +78,15 @@ export async function adjuntarSoporte(archivo, asientoId) {
     .eq('id', asientoId);
 
   if (errFila) {
-    // El binario quedaria huerfano en Storage sin nadie que lo referencie.
-    console.error('[Soportes] Subido pero no se pudo enlazar; se retira:', errFila);
-    await supabase.storage.from(BUCKET).remove([ruta]);
+    // El binario quedaria huerfano en Storage sin nadie que lo referencie. Solo
+    // el auditor puede retirarlo (sql/014); si subio un comercial, se deja
+    // registrado para que el auditor lo limpie.
+    if (esAuditor()) {
+      console.error('[Soportes] Subido pero no se pudo enlazar; se retira:', errFila);
+      await supabase.storage.from(BUCKET).remove([ruta]);
+    } else {
+      console.warn('[Soportes] Subido pero no se pudo enlazar; queda sin referencia (solo un auditor puede retirarlo):', ruta, errFila);
+    }
     return { ok: false, error: errFila.message };
   }
 

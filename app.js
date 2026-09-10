@@ -50,6 +50,8 @@ const S = {
   saldos: new Map(),   // documento_id -> { total, pagado, saldo }
   // Reglas de retencion activas (sql/012); solo para la vista previa
   reglas: [],
+  // Conceptos operativos (sql/013). Con cuenta solo para el auditor.
+  conceptos: [],
 
   // Acumuladores para impuestos
   ivaAcum: { pct19: 0, pct5: 0, excluido: 0 },
@@ -375,14 +377,9 @@ function asientoOperacion(cat, prov, nit, valor, retePct, desc, nroFact, fecha) 
   return a;
 }
 
-/**
- * Cuentas de una compra a credito. El asiento completo, con retenciones, lo
- * construye la base en registrar_compra() (sql/012): hacerlo en el navegador
- * permitiria omitir la retencion desde la consola. Estas constantes solo sirven
- * para enviar las dos lineas basicas que exige la version anterior (sql/010).
- */
-const CUENTA_COMPRA = { gasto: '5199', inventario: '1435' };
-const CUENTA_POR_PAGAR = '2205';
+// Las compras a credito no tienen generador en el navegador: registrar_compra()
+// (sql/013) construye el asiento en la base, con la cuenta del concepto
+// operativo elegido y las retenciones que correspondan.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 6. RENDER ASIENTO CONTABLE (HTML tabla)
@@ -975,6 +972,7 @@ function mensajeDeErrorBD(err) {
            + 'Recarga la pagina para sincronizar el consecutivo e intenta de nuevo.';
     }
     if (/terceros_nit/.test(detalle + mensaje)) return 'Ya existe un tercero con ese NIT.';
+    if (/conceptos_operativos_nombre/.test(detalle + mensaje)) return 'Ya existe un concepto operativo con ese nombre.';
     if (/codigo/.test(detalle)) return 'Ya existe una cuenta con ese codigo en el catalogo.';
     return 'Ya existe un registro con esos datos. ' + detalle;
   }
@@ -1321,7 +1319,10 @@ async function cargarAsientosNomina() {
 
 // ── GESTION OPERATIVA: terceros y compras a credito (sql/010) ───────────────
 
-const DESTINO_COMPRA_LABELS = { gasto: 'Gasto', inventario: 'Inventario' };
+const DESTINO_COMPRA_LABELS = { gasto: 'Gasto', inventario: 'Inventario', activo_fijo: 'Activo fijo' };
+const TIPO_MOVIMIENTO_LABELS = { gasto: 'Gasto', inventario: 'Inventario', activo_fijo: 'Activo fijo' };
+/** Prefijo de cuenta de cada tipo de movimiento. La base aplica la misma regla (sql/013). */
+const PREFIJO_CUENTA_MOVIMIENTO = { gasto: '5', inventario: '14', activo_fijo: '15' };
 const CONCEPTO_TRIBUTARIO_LABELS = {
   bienes: 'Compra de bienes', servicios: 'Servicios', honorarios: 'Honorarios',
   arrendamientos: 'Arrendamientos', otros: 'Otros',
@@ -1382,6 +1383,138 @@ async function cargarCompras() {
   return { error: null };
 }
 
+/**
+ * Conceptos operativos (sql/013). El auditor lee la tabla, con la cuenta de cada
+ * concepto; los demas roles reciben la lista sin cuentas de
+ * conceptos_operativos_lista(). No lanza.
+ */
+async function cargarConceptos() {
+  const { data, error } = esAuditor()
+    ? await supabase.from('conceptos_operativos').select('*').order('nombre_concepto')
+    : await supabase.rpc('conceptos_operativos_lista');
+  if (error) {
+    console.error('[Supabase] No se pudieron cargar los conceptos operativos:', error);
+    S.conceptos = [];
+    return { error };
+  }
+  S.conceptos = data;
+  return { error: null };
+}
+
+const conceptoOperativo = (id) => S.conceptos.find(c => c.id === Number(id));
+
+/** Concepto operativo elegido en el formulario de compra. */
+const conceptoElegido = () => conceptoOperativo(document.getElementById('compraConceptoOperativo')?.value);
+
+/** Select de conceptos del formulario de compra: solo los activos. */
+function fillConceptoOperativoSel(error) {
+  const sel = document.getElementById('compraConceptoOperativo');
+  if (!sel) return;
+  const elegido = sel.value;
+  const activos = S.conceptos.filter(c => c.activo);
+  if (error || !activos.length) {
+    sel.innerHTML = '<option value="">'
+      + (error ? '— No se pudieron cargar los conceptos —' : '— Sin conceptos activos —') + '</option>';
+    return;
+  }
+  const auditor = esAuditor();
+  sel.innerHTML = '<option value="">— Seleccionar concepto —</option>'
+    + activos.map(c => '<option value="' + c.id + '">' + esc(c.nombre_concepto)
+        + ' (' + esc(TIPO_MOVIMIENTO_LABELS[c.tipo_movimiento] || c.tipo_movimiento) + ')'
+        + (auditor ? ' · ' + esc(c.cuenta_id_asociada) + ' ' + esc(nombreCuenta(c.cuenta_id_asociada)) : '')
+        + '</option>').join('');
+  if (elegido && activos.some(c => String(c.id) === elegido)) sel.value = elegido;
+}
+
+/** Auditor: cuentas del catalogo admitidas para el tipo de movimiento elegido. */
+function fillCuentaConceptoSel() {
+  const sel = document.getElementById('conceptoCuenta');
+  const tipo = document.getElementById('conceptoTipo')?.value;
+  if (!sel || !tipo || !esAuditor()) return;
+  const elegida = sel.value;
+  const cuentas = [...CUENTAS.keys()]
+    .filter(c => c.length === 4 && c.startsWith(PREFIJO_CUENTA_MOVIMIENTO[tipo]))
+    .sort();
+  sel.innerHTML = cuentas.length
+    ? '<option value="">— Seleccionar cuenta —</option>'
+      + cuentas.map(c => '<option value="' + c + '">' + c + ' · ' + esc(nombreCuenta(c)) + '</option>').join('')
+    : '<option value="">— El plan de cuentas no tiene cuentas para este tipo —</option>';
+  if (cuentas.includes(elegida)) sel.value = elegida;
+}
+
+/** Auditor: listado de conceptos operativos con sus acciones. */
+function renderConceptos(error) {
+  const body = document.getElementById('bodyConceptos');
+  const countEl = document.getElementById('countConceptos');
+  if (!body || !esAuditor()) return;
+  if (pintarEstadoTabla(body, countEl, 5, S.conceptos, error)) return;
+  body.innerHTML = S.conceptos.map(c => `
+    <tr style="${c.activo ? '' : 'opacity:.55'}">
+      <td style="font-size:12.5px">${esc(c.nombre_concepto)}</td>
+      <td><span class="chip chip-pendiente">${esc(TIPO_MOVIMIENTO_LABELS[c.tipo_movimiento] || c.tipo_movimiento)}</span></td>
+      <td style="font-size:12px"><span class="mono-cell">${esc(c.cuenta_id_asociada)}</span> ${esc(nombreCuenta(c.cuenta_id_asociada))}</td>
+      <td style="font-size:12px">${esc(CONCEPTO_TRIBUTARIO_LABELS[c.concepto_tributario_defecto] || '—')}</td>
+      <td style="white-space:nowrap">
+        <span class="chip ${c.activo ? 'chip-ok' : 'chip-gasto'}">${c.activo ? 'Activo' : 'Inactivo'}</span>
+        <button type="button" class="btn-ghost-sm editar-concepto" data-id="${c.id}"
+                style="margin-left:6px;font-size:11px;padding:2px 8px">Editar</button>
+        <button type="button" class="btn-ghost-sm activar-concepto" data-id="${c.id}" data-activo="${c.activo ? '1' : '0'}"
+                style="margin-left:4px;font-size:11px;padding:2px 8px">${c.activo ? 'Desactivar' : 'Activar'}</button>
+      </td>
+    </tr>`).join('');
+}
+
+/** Deja el formulario de conceptos listo para crear uno nuevo. */
+function limpiarFormConcepto() {
+  const poner = (id, valor) => { const el = document.getElementById(id); if (el) el.value = valor; };
+  poner('conceptoId', '');
+  poner('conceptoNombre', '');
+  poner('conceptoTipo', 'gasto');
+  poner('conceptoTributarioDefecto', '');
+  fillCuentaConceptoSel();
+  poner('conceptoCuenta', '');
+  const titulo = document.getElementById('conceptoFormTitulo');
+  if (titulo) titulo.textContent = 'Nuevo Concepto Operativo';
+  const btn = document.getElementById('btnGuardarConcepto');
+  if (btn) btn.textContent = 'Registrar Concepto';
+  const cancelar = document.getElementById('btnCancelarConcepto');
+  if (cancelar) cancelar.style.display = 'none';
+}
+
+/** Carga un concepto en el formulario para editarlo. */
+function editarConcepto(id) {
+  const c = conceptoOperativo(id);
+  if (!c) return;
+  document.getElementById('conceptoId').value = String(c.id);
+  document.getElementById('conceptoNombre').value = c.nombre_concepto;
+  document.getElementById('conceptoTipo').value = c.tipo_movimiento;
+  document.getElementById('conceptoTributarioDefecto').value = c.concepto_tributario_defecto || '';
+  fillCuentaConceptoSel();
+  document.getElementById('conceptoCuenta').value = c.cuenta_id_asociada;
+  document.getElementById('conceptoFormTitulo').textContent = 'Editar Concepto Operativo';
+  document.getElementById('btnGuardarConcepto').textContent = 'Guardar Cambios';
+  document.getElementById('btnCancelarConcepto').style.display = '';
+  document.getElementById('conceptoNombre').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/**
+ * Celda de soporte de compras y pagos. Ambos roles ven el documento (sql/014).
+ * Si falta, cualquiera de los dos puede adjuntarlo: la base solo deja llenar un
+ * soporte vacio, y cambiarlo es exclusivo del auditor.
+ */
+function celdaSoporte(a) {
+  if (!a) return '—';
+  if (a.soporteArchivo) {
+    return `<button type="button" class="ver-soporte" data-ruta="${esc(a.soporteArchivo)}"
+              title="${esc(nombreDeSoporte(a.soporteArchivo))}"
+              style="background:none;border:none;padding:0;cursor:pointer;font-size:12px;
+                     color:var(--accent);text-decoration:underline">Ver</button>`;
+  }
+  return `<span class="chip chip-pendiente" style="font-size:10.5px">Sin soporte</span>
+    <button type="button" class="btn-ghost-sm adjuntar-soporte" data-asiento="${a.id}"
+            style="margin-left:4px;font-size:11px;padding:2px 8px">Adjuntar</button>`;
+}
+
 /** Reglas de retencion activas (sql/012), para la vista previa. No lanza. */
 async function cargarReglas() {
   const { data, error } = await supabase
@@ -1407,7 +1540,8 @@ function previsualizarRetencion() {
   const aviso = document.getElementById('compraRetencionPreview');
   if (!aviso) return;
   const total = parseFloat(document.getElementById('compraTotal')?.value) || 0;
-  const concepto = document.getElementById('compraConceptoTributario')?.value;
+  const concepto = document.getElementById('compraConceptoTributario')?.value
+    || conceptoElegido()?.concepto_tributario_defecto;
   const proveedor = proveedores().find(t => t.id === Number(document.getElementById('compraProveedor')?.value));
   if (!total || !concepto) { aviso.textContent = ''; return; }
   if (proveedor?.no_sujeto_retencion) {
@@ -1498,7 +1632,7 @@ function renderCompras(error) {
   const body = document.getElementById('bodyCompras');
   const countEl = document.getElementById('countCompras');
   if (!body) return;
-  if (pintarEstadoTabla(body, countEl, 8, S.documentos, error)) return;
+  if (pintarEstadoTabla(body, countEl, 9, S.documentos, error)) return;
   body.innerHTML = S.documentos.map(d => {
     const a = d.asientos ? asientoDesdeDB(d.asientos) : null;
     const estado = estadoFactura(d.id);
@@ -1506,7 +1640,9 @@ function renderCompras(error) {
     // Retenido = valor de la factura menos lo que se le debe al proveedor (2205).
     const neto = S.saldos.get(d.id)?.total;
     const retenido = neto === undefined ? 0 : Math.max(0, total - neto);
-    const concepto = CONCEPTO_TRIBUTARIO_LABELS[d.concepto_tributario];
+    const tributario = CONCEPTO_TRIBUTARIO_LABELS[d.concepto_tributario];
+    const operativo = conceptoOperativo(d.concepto_operativo_id)?.nombre_concepto
+      || DESTINO_COMPRA_LABELS[d.destino] || d.destino;
     const saldo = estado.saldo === null
       ? '—'
       : `${fmt(estado.saldo)} <span class="chip ${estado.chip}" style="font-size:10.5px">${estado.etiqueta}</span>`;
@@ -1514,14 +1650,15 @@ function renderCompras(error) {
       <tr>
         <td>${fmtDate(d.fecha)}</td>
         <td style="font-size:12.5px">${esc(d.terceros?.nombre) || '—'}</td>
-        <td style="color:var(--text-2);font-size:12.5px">${esc(d.concepto)}${concepto ? `<div style="font-size:10.5px;color:var(--text-3)">${esc(concepto)}</div>` : ''}</td>
-        <td><span class="chip chip-pendiente">${esc(DESTINO_COMPRA_LABELS[d.destino] || d.destino)}</span></td>
+        <td style="color:var(--text-2);font-size:12.5px">${esc(d.concepto)}${tributario ? `<div style="font-size:10.5px;color:var(--text-3)">${esc(tributario)}</div>` : ''}</td>
+        <td><span class="chip chip-pendiente">${esc(operativo)}</span></td>
         <td class="text-right mono-cell">${fmt(total)}</td>
         <td class="text-right mono-cell" style="color:var(--yellow)">${retenido > 0 ? fmt(retenido) : '—'}</td>
         <td class="text-right mono-cell">${saldo}</td>
+        <td style="white-space:nowrap">${celdaSoporte(a)}</td>
         <td class="mono-cell" style="font-size:11px;color:var(--accent)">${esc(a?.comp) || '—'}</td>
       </tr>
-      ${a ? filaDetalle(a, 8) : ''}`;
+      ${a ? filaDetalle(a, 9) : ''}`;
   }).join('');
 }
 
@@ -1592,7 +1729,7 @@ function renderPagos(error) {
   const body = document.getElementById('bodyPagos');
   const countEl = document.getElementById('countPagos');
   if (!body) return;
-  if (pintarEstadoTabla(body, countEl, 6, S.pagos, error)) return;
+  if (pintarEstadoTabla(body, countEl, 7, S.pagos, error)) return;
   body.innerHTML = S.pagos.map(p => {
     const a = p.asientos ? asientoDesdeDB(p.asientos) : null;
     const doc = p.documentos_comerciales;
@@ -1603,9 +1740,10 @@ function renderPagos(error) {
         <td style="color:var(--text-2);font-size:12.5px">${esc(doc?.concepto) || '—'}</td>
         <td class="text-right mono-cell">${fmt(Number(p.valor) || 0)}</td>
         <td><span class="chip chip-ok">${esc(nombreOrigenPago(p.cuenta_origen))}</span></td>
+        <td style="white-space:nowrap">${celdaSoporte(a)}</td>
         <td class="mono-cell" style="font-size:11px;color:var(--accent)">${esc(a?.comp) || '—'}</td>
       </tr>
-      ${a ? filaDetalle(a, 6) : ''}`;
+      ${a ? filaDetalle(a, 7) : ''}`;
   }).join('');
 }
 
@@ -1633,7 +1771,7 @@ function updateKpiCompras() {
     const valor = Number(d.total) || 0;
     total += valor;
     if (d.destino === 'inventario') inventario += valor;
-    else gasto += valor;
+    else if (d.destino === 'gasto') gasto += valor;
   });
   poner('kpi-compras-total', fmt(total));
   poner('kpi-compras-gasto', fmt(gasto));
@@ -1643,10 +1781,13 @@ function updateKpiCompras() {
 
 /** Carga y repinta toda la gestion operativa: terceros, reglas, compras y pagos. No lanza. */
 async function recargarGestionOperativa() {
-  const [terceros, compras, saldos, pagos] = await Promise.all([
-    cargarTerceros(), cargarCompras(), cargarSaldos(), cargarPagos(), cargarReglas(),
+  const [terceros, compras, saldos, pagos, , conceptos] = await Promise.all([
+    cargarTerceros(), cargarCompras(), cargarSaldos(), cargarPagos(), cargarReglas(), cargarConceptos(),
   ]);
   fillProveedorSel();
+  fillConceptoOperativoSel(conceptos.error);
+  fillCuentaConceptoSel();
+  renderConceptos(conceptos.error);
   renderTerceros(terceros.error);
   renderCompras(compras.error);
   updateKpiCompras();
@@ -2516,7 +2657,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Aviso inmediato si el archivo elegido no sirve, sin esperar a guardar.
-  ['soporteArchivo', 'soporteArchivoVenta', 'soporteArchivoDom', 'soporteArchivoOp']
+  ['soporteArchivo', 'soporteArchivoVenta', 'soporteArchivoDom', 'soporteArchivoOp',
+   'soporteArchivoCompra', 'soporteArchivoPago']
     .forEach(id => {
       document.getElementById(id)?.addEventListener('change', function () {
         const archivo = this.files?.[0];
@@ -2887,34 +3029,38 @@ document.addEventListener('DOMContentLoaded', () => {
     const proveedorId = Number(document.getElementById('compraProveedor').value);
     const concepto = document.getElementById('compraConcepto').value.trim();
     const total = Math.round((parseFloat(document.getElementById('compraTotal').value) || 0) * 100) / 100;
-    const destino = document.getElementById('compraDestino').value;
-    const conceptoTributario = document.getElementById('compraConceptoTributario').value;
+    const operativo = conceptoElegido();
+    // Vacio = el concepto tributario por defecto del concepto operativo.
+    const conceptoTributario = document.getElementById('compraConceptoTributario').value
+      || operativo?.concepto_tributario_defecto || '';
     const fecha = document.getElementById('compraFecha').value || today();
 
     const proveedor = proveedores().find(t => t.id === proveedorId);
-    if (!proveedor || !concepto || total <= 0) { alert('Completa proveedor, concepto y valor total.'); return; }
+    if (!proveedor || !concepto || total <= 0) { alert('Completa proveedor, descripción y valor total.'); return; }
+    if (!operativo) {
+      alert(S.conceptos.some(c => c.activo)
+        ? 'Selecciona el concepto operativo de la compra: de él sale la cuenta contable.'
+        : 'No hay conceptos operativos activos. El auditor debe configurarlos en Gestión Operativa.');
+      return;
+    }
     if (!conceptoTributario) {
       alert('Indica el concepto tributario de la compra: de él depende la retención.');
       return;
     }
 
-    // La base construye el asiento completo: debito a gasto o inventario, las
-    // retenciones que correspondan segun reglas_impuestos y el neto a 2205.
+    // La base construye el asiento completo: la cuenta sale del concepto
+    // operativo, las retenciones de reglas_impuestos y el neto va a 2205. La app
+    // no envia cuentas ni lineas.
     const comprobante = nextComp('COM');
 
     const htmlOriginal = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
     const { data, error } = await supabase.rpc('registrar_compra', {
-      p_documento: { proveedor_id: proveedor.id, concepto, total, destino, fecha, concepto_tributario: conceptoTributario },
-      p_asiento: {
-        comprobante,
-        // Solo para la version anterior de la funcion (sql/010), que exigia las
-        // lineas basicas. sql/012 las ignora y construye el asiento con retenciones.
-        lineas: [
-          { cuenta: CUENTA_COMPRA[destino], descripcion: concepto, debito: total, credito: 0 },
-          { cuenta: CUENTA_POR_PAGAR, descripcion: 'Por pagar a ' + proveedor.nombre, debito: 0, credito: total },
-        ],
+      p_documento: {
+        proveedor_id: proveedor.id, concepto, total, fecha,
+        concepto_operativo_id: operativo.id, concepto_tributario: conceptoTributario,
       },
+      p_asiento: { comprobante },
     });
     if (btn) { btn.disabled = false; btn.innerHTML = htmlOriginal; }
 
@@ -2925,6 +3071,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    // El soporte va despues: se archiva en la carpeta del asiento recien creado.
+    await subirAdjuntoSiHay('soporteArchivoCompra', data.asiento_id, btn);
     await recargarGestionOperativa();
 
     // Auditor: tarjeta con el asiento, leido de la base porque lo construyo el
@@ -2942,7 +3090,8 @@ document.addEventListener('DOMContentLoaded', () => {
     renderLibro();
     if (document.getElementById('bodyDiario')?.dataset.consultado === '1') renderDiario();
 
-    ['compraConcepto', 'compraTotal', 'compraConceptoTributario'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['compraConcepto', 'compraTotal', 'compraConceptoTributario', 'compraConceptoOperativo']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     previsualizarRetencion();
   });
 
@@ -2970,6 +3119,102 @@ document.addEventListener('DOMContentLoaded', () => {
     campo?.addEventListener('input', previsualizarRetencion);
     campo?.addEventListener('change', previsualizarRetencion);
   });
+
+  // Al elegir un concepto operativo se precarga su concepto tributario.
+  document.getElementById('compraConceptoOperativo')?.addEventListener('change', () => {
+    const defecto = conceptoElegido()?.concepto_tributario_defecto;
+    const sel = document.getElementById('compraConceptoTributario');
+    if (sel && defecto) sel.value = defecto;
+    previsualizarRetencion();
+  });
+
+  // ══ CONCEPTOS OPERATIVOS (auditor) ══
+  document.getElementById('conceptoTipo')?.addEventListener('change', fillCuentaConceptoSel);
+  document.getElementById('btnCancelarConcepto')?.addEventListener('click', limpiarFormConcepto);
+
+  document.getElementById('btnGuardarConcepto')?.addEventListener('click', async () => {
+    if (!esAuditor()) return;
+    const btn = document.getElementById('btnGuardarConcepto');
+    const id = Number(document.getElementById('conceptoId').value) || null;
+    const fila = {
+      nombre_concepto: document.getElementById('conceptoNombre').value.trim(),
+      tipo_movimiento: document.getElementById('conceptoTipo').value,
+      cuenta_id_asociada: document.getElementById('conceptoCuenta').value,
+      concepto_tributario_defecto: document.getElementById('conceptoTributarioDefecto').value || null,
+    };
+    if (!fila.nombre_concepto || !fila.cuenta_id_asociada) {
+      alert('Indica el nombre del concepto y su cuenta contable.');
+      return;
+    }
+
+    const htmlOriginal = btn.innerHTML;
+    btn.disabled = true; btn.textContent = 'Guardando...';
+    const { error } = id
+      ? await supabase.from('conceptos_operativos').update(fila).eq('id', id)
+      : await supabase.from('conceptos_operativos').insert(fila);
+    btn.disabled = false; btn.innerHTML = htmlOriginal;
+
+    if (error) {
+      console.error('[Supabase] No se pudo guardar el concepto operativo:', error);
+      alert('No se pudo guardar el concepto:' + String.fromCharCode(10) + mensajeDeErrorBD(error));
+      return;
+    }
+    limpiarFormConcepto();
+    await recargarGestionOperativa();
+  });
+
+  document.addEventListener('click', async (e) => {
+    const editar = e.target.closest('.editar-concepto');
+    if (editar && esAuditor()) { editarConcepto(editar.dataset.id); return; }
+
+    const activar = e.target.closest('.activar-concepto');
+    if (!activar || !esAuditor()) return;
+    activar.disabled = true;
+    const { error } = await supabase
+      .from('conceptos_operativos')
+      .update({ activo: activar.dataset.activo !== '1' })
+      .eq('id', Number(activar.dataset.id));
+    if (error) {
+      activar.disabled = false;
+      alert('No se pudo actualizar el concepto:' + String.fromCharCode(10) + mensajeDeErrorBD(error));
+      return;
+    }
+    await recargarGestionOperativa();
+  });
+
+  // Adjuntar despues el soporte de una compra o un pago que no lo tiene.
+  {
+    const entrada = document.getElementById('soporteTardio');
+    let botonActivo = null;
+
+    document.addEventListener('click', (e) => {
+      const boton = e.target.closest('.adjuntar-soporte');
+      if (!boton || !entrada) return;
+      botonActivo = boton;
+      entrada.dataset.asiento = boton.dataset.asiento;
+      entrada.value = '';
+      entrada.click();   // sincrono: el navegador solo abre el selector dentro del clic
+    });
+
+    entrada?.addEventListener('change', async () => {
+      const archivo = entrada.files?.[0];
+      const asientoId = Number(entrada.dataset.asiento);
+      if (!archivo || !asientoId) return;
+      const problema = validarSoporte(archivo);
+      if (problema) { alert(problema); entrada.value = ''; return; }
+
+      if (botonActivo) { botonActivo.disabled = true; botonActivo.textContent = 'Subiendo...'; }
+      const res = await adjuntarSoporte(archivo, asientoId);
+      entrada.value = '';
+
+      if (!res.ok) {
+        if (botonActivo) { botonActivo.disabled = false; botonActivo.textContent = 'Adjuntar'; }
+        alert('No se pudo adjuntar el documento:' + String.fromCharCode(10) + res.error);
+        return;
+      }
+      await recargarGestionOperativa();
+    });
+  }
 
   // ══ PAGOS A PROVEEDORES ══
   document.getElementById('pagoFactura')?.addEventListener('change', () => mostrarSaldoFactura({ proponerValor: true }));
@@ -3006,6 +3251,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    // El soporte va despues: se archiva en la carpeta del asiento de egreso.
+    await subirAdjuntoSiHay('soporteArchivoPago', data.asiento_id, btn);
     await recargarGestionOperativa();
 
     // Auditor: tarjeta con el asiento de egreso, leido de la base porque lo

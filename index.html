@@ -834,7 +834,7 @@
               </select>
             </div>
             <div class="field-group">
-              <label class="field-label" for="compraConcepto">Concepto</label>
+              <label class="field-label" for="compraConcepto">Descripción</label>
               <input type="text" class="field-input" id="compraConcepto" placeholder="Ej: Repuestos para motos, factura FV-120" />
             </div>
             <div class="field-row">
@@ -848,10 +848,9 @@
               </div>
             </div>
             <div class="field-group">
-              <label class="field-label" for="compraDestino">Destino</label>
-              <select class="field-select" id="compraDestino">
-                <option value="gasto">Gasto del período</option>
-                <option value="inventario">Inventario (mercancía)</option>
+              <label class="field-label" for="compraConceptoOperativo">Concepto operativo</label>
+              <select class="field-select" id="compraConceptoOperativo">
+                <option value="">— Seleccionar concepto —</option>
               </select>
             </div>
             <div class="field-group">
@@ -865,6 +864,11 @@
                 <option value="otros">Otros</option>
               </select>
               <small id="compraRetencionPreview" style="color: var(--text-muted); font-size: 11px;"></small>
+            </div>
+            <div class="form-group">
+              <label for="soporteArchivoCompra">Adjunta documento soporte</label>
+              <input type="file" id="soporteArchivoCompra" class="form-control" accept=".pdf,.png,.jpg,.jpeg" />
+              <small style="color: var(--text-muted); font-size: 11px;">Factura del proveedor a nombre de ATL (PDF, PNG o JPG, máx. 10 MB). Opcional: puedes adjuntarla después desde el historial.</small>
             </div>
             <button class="btn-primary full" id="btnGuardarCompra">Registrar Compra</button>
           </div>
@@ -881,16 +885,17 @@
                 <tr>
                   <th>Fecha</th>
                   <th>Proveedor</th>
-                  <th>Concepto</th>
-                  <th>Destino</th>
+                  <th>Descripción</th>
+                  <th>Concepto operativo</th>
                   <th class="text-right">Total</th>
                   <th class="text-right">Retenido</th>
                   <th class="text-right">Saldo</th>
+                  <th>Soporte</th>
                   <th>Asiento</th>
                 </tr>
               </thead>
               <tbody id="bodyCompras">
-                <tr><td colspan="8" class="empty-row">Sin registros aún.</td></tr>
+                <tr><td colspan="9" class="empty-row">Sin registros aún.</td></tr>
               </tbody>
             </table>
           </div>
@@ -958,6 +963,11 @@
               </select>
               <small id="pagoOrigenNota" style="color: var(--text-muted); font-size: 11px;">Los pagos de tu perfil salen siempre de Caja General.</small>
             </div>
+            <div class="form-group">
+              <label for="soporteArchivoPago">Adjunta comprobante de pago</label>
+              <input type="file" id="soporteArchivoPago" class="form-control" accept=".pdf,.png,.jpg,.jpeg" />
+              <small style="color: var(--text-muted); font-size: 11px;">Comprobante de egreso, transferencia o recibo (PDF, PNG o JPG, máx. 10 MB). Opcional.</small>
+            </div>
             <button class="btn-primary full" id="btnRegistrarPago">Registrar Pago</button>
           </div>
         </div>
@@ -976,11 +986,12 @@
                   <th>Factura</th>
                   <th class="text-right">Valor</th>
                   <th>Origen</th>
+                  <th>Soporte</th>
                   <th>Asiento</th>
                 </tr>
               </thead>
               <tbody id="bodyPagos">
-                <tr><td colspan="6" class="empty-row">Sin registros aún.</td></tr>
+                <tr><td colspan="7" class="empty-row">Sin registros aún.</td></tr>
               </tbody>
             </table>
           </div>
@@ -1049,6 +1060,76 @@
           </div>
         </div>
       </div>
+
+      <!-- ═══ Conceptos operativos (sql/013) · solo auditor ═══ -->
+      <div class="two-col-layout solo-auditor">
+        <div class="card form-card">
+          <div class="card-header">
+            <span class="card-title" id="conceptoFormTitulo">Nuevo Concepto Operativo</span>
+          </div>
+          <div class="card-body">
+            <input type="hidden" id="conceptoId" />
+            <div class="field-group">
+              <label class="field-label" for="conceptoNombre">Nombre del concepto</label>
+              <input type="text" class="field-input" id="conceptoNombre" placeholder="Ej: Repuestos y mantenimiento de motos" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="conceptoTipo">Tipo de movimiento</label>
+              <select class="field-select" id="conceptoTipo">
+                <option value="gasto">Gasto (clase 5)</option>
+                <option value="inventario">Inventario (grupo 14)</option>
+                <option value="activo_fijo">Activo fijo (grupo 15)</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="conceptoCuenta">Cuenta contable</label>
+              <select class="field-select" id="conceptoCuenta">
+                <option value="">— Seleccionar cuenta —</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="conceptoTributarioDefecto">Concepto tributario por defecto</label>
+              <select class="field-select" id="conceptoTributarioDefecto">
+                <option value="">— Sin definir (se elige en cada compra) —</option>
+                <option value="bienes">Compra de bienes</option>
+                <option value="servicios">Servicios</option>
+                <option value="honorarios">Honorarios</option>
+                <option value="arrendamientos">Arrendamientos</option>
+                <option value="otros">Otros</option>
+              </select>
+              <small style="color: var(--text-muted); font-size: 11px;">Cambiar la cuenta de un concepto solo afecta las compras nuevas: los asientos ya registrados conservan su cuenta.</small>
+            </div>
+            <button class="btn-primary full" id="btnGuardarConcepto">Registrar Concepto</button>
+            <button type="button" class="btn-ghost-sm" id="btnCancelarConcepto" style="display:none;width:100%;margin-top:8px">Cancelar edición</button>
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="card-header">
+            <span class="card-title">Conceptos Operativos</span>
+            <span class="card-count" id="countConceptos">0 registros</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Concepto</th>
+                  <th>Tipo</th>
+                  <th>Cuenta</th>
+                  <th>Concepto tributario</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody id="bodyConceptos">
+                <tr><td colspan="5" class="empty-row">Sin registros aún.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Selector de archivo para adjuntar el soporte de un registro ya guardado -->
+      <input type="file" id="soporteTardio" accept=".pdf,.png,.jpg,.jpeg" style="display:none" />
     </section>
 
     <!-- ═══════════════════════════════════════════
