@@ -603,14 +603,10 @@ function renderLibro(filtro = '') {
 function updateKpiSocios() {
   let ap = 0, ret = 0, gso = 0;
   S.asientosSocios.forEach(a => {
-    a.lineas.forEach(l => {
-      // Aportes: 3105 Capital Suscrito + 3120 Capital por Capitalizar (inversión)
-      if (l.cuenta === '3105' || l.cuenta === '3120') ap += l.credito;
-      // Retiros / distribución: 3705 Utilidades Acumuladas debitadas
-      if (l.cuenta === '3705') ret += l.debito;
-      // Gastos pagados por socio: 5199 debitado
-      if (l.cuenta === '5199' && l.debito > 0) gso += l.debito;
-    });
+    const m = metricasDe(a);
+    ap += m.aporte_capital;   // 3105 Capital suscrito + 3120 Capital por capitalizar
+    ret += m.retiro;          // 3705 Utilidades acumuladas debitadas
+    gso += m.gasto_general;   // 5199 debitado: gastos pagados por socio
   });
   const cap = ap - ret;
   document.getElementById('kpi-aportes').textContent = fmt(ap);
@@ -622,10 +618,9 @@ function updateKpiSocios() {
 function updateKpiVentas() {
   let fac = 0, cob = 0;
   S.asientosVentas.forEach(a => {
-    a.lineas.forEach(l => {
-      if (l.cuenta === '4135') fac += l.credito;
-      if (l.cuenta === '1110' && a.modulo === 'venta') cob += l.debito;
-    });
+    const m = metricasDe(a);
+    fac += m.ingreso;                               // 4135 acreditado
+    if (a.modulo === 'venta') cob += m.cobro_banco; // 1110 debitado
   });
   const cartera = Math.max(0, fac - cob);
   document.getElementById('kpi-facturado').textContent = fmt(fac);
@@ -638,11 +633,11 @@ function updateKpiVentas() {
 function updateKpiOp() {
   let total = 0, dot = 0, pol = 0, otros = 0;
   S.asientosOp.forEach(a => {
-    a.lineas.forEach(l => {
-      if (l.cuenta === '5120') { dot += l.debito; total += l.debito; }
-      else if (l.cuenta === '5150') { pol += l.debito; total += l.debito; }
-      else if (l.debito > 0) { otros += l.debito; total += l.debito; }
-    });
+    const m = metricasDe(a);
+    dot += m.gasto_dotacion;                                        // 5120
+    pol += m.gasto_poliza;                                          // 5150
+    otros += m.total_debito - m.gasto_dotacion - m.gasto_poliza;    // resto de debitos
+    total += m.total_debito;
   });
   document.getElementById('kpi-gastos-op').textContent = fmt(total);
   document.getElementById('kpi-dotacion').textContent = fmt(dot);
@@ -671,7 +666,7 @@ function updateImpuestos() {
 
   // ICA base = ingresos brutos
   let ingBrutos = 0;
-  S.asientosVentas.forEach(a => a.lineas.forEach(l => { if (l.cuenta === '4135') ingBrutos += l.credito; }));
+  S.asientosVentas.forEach(a => { ingBrutos += metricasDe(a).ingreso; });
   document.getElementById('icaBase').textContent = fmt(ingBrutos);
   document.getElementById('badge-nomina').textContent = String(S.domiciliarios.length);
   calcICA();
@@ -679,7 +674,7 @@ function updateImpuestos() {
 
 function calcICA() {
   let ingBrutos = 0;
-  S.asientosVentas.forEach(a => a.lineas.forEach(l => { if (l.cuenta === '4135') ingBrutos += l.credito; }));
+  S.asientosVentas.forEach(a => { ingBrutos += metricasDe(a).ingreso; });
   const tarifa = parseFloat(document.getElementById('icaTarifa')?.value) || 6.9;
   document.getElementById('icaTotal').textContent = fmt(Math.round(ingBrutos * tarifa / 1000));
 }
@@ -847,6 +842,43 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c =>
 const montoCuenta = (a, cuenta, lado) =>
   (a.lineas || []).reduce((s, l) => s + (l.cuenta === cuenta ? (l[lado] || 0) : 0), 0);
 
+const CAMPOS_METRICAS = [
+  'total_debito', 'total_credito', 'iva', 'retencion', 'cxc_neto', 'ingreso',
+  'cobro_banco', 'aporte_capital', 'retiro', 'gasto_general', 'gasto_dotacion', 'gasto_poliza',
+];
+
+/** Convierte la fila de metricas_asientos() en numeros. null si no hay fila. */
+function normalizarMetricas(m) {
+  if (!m) return null;
+  return Object.fromEntries(CAMPOS_METRICAS.map(k => [k, Number(m[k]) || 0]));
+}
+
+/**
+ * Cifras de negocio de un asiento. Si llegaron agregadas desde la base (roles
+ * sin acceso a las lineas) se usan tal cual; si no, se calculan de las lineas.
+ * Las formulas deben coincidir con public.metricas_asientos() en sql/009.
+ */
+function metricasDe(a) {
+  if (a.metricas) return a.metricas;
+  const dr = (c) => montoCuenta(a, c, 'debito');
+  const cr = (c) => montoCuenta(a, c, 'credito');
+  a.metricas = {
+    total_debito: a.totD,
+    total_credito: a.totC,
+    iva: cr('2408'),
+    retencion: cr('2370'),
+    cxc_neto: dr('1455') - cr('1455'),
+    ingreso: cr('4135'),
+    cobro_banco: dr('1110'),
+    aporte_capital: cr('3105') + cr('3120'),
+    retiro: dr('3705'),
+    gasto_general: dr('5199'),
+    gasto_dotacion: dr('5120'),
+    gasto_poliza: dr('5150'),
+  };
+  return a.metricas;
+}
+
 /** Adapta una fila de la BD (con su join) al formato que espera htmlAsiento(). */
 function asientoDesdeDB(row) {
   const lineas = (row.asiento_detalles || [])
@@ -877,6 +909,9 @@ function asientoDesdeDB(row) {
     vencimiento: row.vencimiento,
     tasa: (row.tasa === null || row.tasa === undefined) ? null : Number(row.tasa),
     valor: Number(row.valor) || 0,
+    // Cifras agregadas de la base para los roles sin acceso a las lineas; null
+    // para el auditor, que las calcula de sus lineas en metricasDe().
+    metricas: normalizarMetricas(row._metricas),
     lineas,
     totD: lineas.reduce((acc, l) => acc + l.debito, 0),
     totC: lineas.reduce((acc, l) => acc + l.credito, 0),
@@ -1056,22 +1091,45 @@ async function subirAdjuntoSiHay(inputId, asientoId, btn) {
 
 /** Lee de la BD los asientos de un módulo, con sus líneas. */
 async function leerAsientos(moduloBD) {
-  // Se piden todas las columnas en vez de enumerarlas: al listarlas una a una,
-  // cualquier columna anadida por una migracion pendiente hacia fallar la
-  // consulta entera y dejaba las tres tablas en estado de error, no solo la
-  // funcion nueva. Con `*` la app sigue viva aunque falte una migracion.
-  const { data, error } = await supabase
+  // Se piden todas las columnas (`*`) en vez de enumerarlas: asi una columna
+  // anadida por una migracion pendiente no hace fallar la consulta entera.
+  const consulta = (columnas) => supabase
     .from('asientos')
-    .select('*, asiento_detalles ( * )')
+    .select(columnas)
     .eq('modulo', moduloBD)
     .order('fecha', { ascending: false })
     .order('id', { ascending: false });
 
-  if (error) {
+  const fallo = (error) => {
     console.error('[Supabase] Error al cargar asientos de ' + moduloBD + ':', error);
     return { filas: null, error };
+  };
+
+  // El auditor lee las lineas y las cifras se calculan a partir de ellas.
+  if (esAuditor()) {
+    const { data, error } = await consulta('*, asiento_detalles ( * )');
+    return error ? fallo(error) : { filas: data, error: null };
   }
-  return { filas: data, error: null };
+
+  // Los demas roles no pueden leer las lineas (RLS de sql/009): reciben las
+  // cabeceras y, aparte, solo las cifras agregadas que calcula la base.
+  const [cabeceras, metricas] = await Promise.all([
+    consulta('*'),
+    supabase.rpc('metricas_asientos', { p_modulo: moduloBD }),
+  ]);
+  if (cabeceras.error) return fallo(cabeceras.error);
+
+  if (metricas.error) {
+    // Compatibilidad mientras no se ejecute sql/009: la funcion aun no existe,
+    // pero las lineas todavia son legibles. Sin esto las cifras saldrian en cero.
+    console.warn('[Supabase] metricas_asientos no disponible; se usan las lineas:', metricas.error.message);
+    const { data, error } = await consulta('*, asiento_detalles ( * )');
+    return error ? fallo(error) : { filas: data, error: null };
+  }
+
+  const porAsiento = new Map(metricas.data.map(m => [m.asiento_id, m]));
+  cabeceras.data.forEach(fila => { fila._metricas = porAsiento.get(fila.id) || null; });
+  return { filas: cabeceras.data, error: null };
 }
 
 /** Fila desplegable con el asiento completo, común a las tres tablas. */
@@ -1168,8 +1226,7 @@ async function renderVentas() {
   body.innerHTML = filas.map(row => {
     const a = asientoDesdeDB(row);
     // IVA y total salen de las líneas: la partida doble es la fuente de verdad.
-    const iva = montoCuenta(a, '2408', 'credito');
-    const total = a.totD;
+    const { iva, total_debito: total } = metricasDe(a);
     const estado = row.tipo === 'cobro'
       ? '<span class="chip chip-ok">Pagado</span>'
       : '<span class="chip chip-pendiente">Pendiente</span>';
@@ -1203,7 +1260,7 @@ async function renderOp() {
 
   body.innerHTML = filas.map(row => {
     const a = asientoDesdeDB(row);
-    const rete = montoCuenta(a, '2370', 'credito');
+    const rete = metricasDe(a).retencion;
     const neto = a.valor - rete;
     return `
       <tr>
@@ -1281,14 +1338,14 @@ function recalcularDerivados() {
 
   S.asientosVentas.forEach(a => {
     if (a.tipo !== 'factura') return;
-    const iva = montoCuenta(a, '2408', 'credito');
+    const iva = metricasDe(a).iva;
     if (a.tasa === 19) S.ivaAcum.pct19 += iva;
     else if (a.tasa === 5) S.ivaAcum.pct5 += iva;
     else S.ivaAcum.excluido += a.valor;
   });
 
   S.asientosOp.forEach(a => {
-    const rete = montoCuenta(a, '2370', 'credito');
+    const rete = metricasDe(a).retencion;
     if (!rete) return;
     // `a.tipo` guarda la categoria del gasto (catGasto).
     const concepto = conceptoRetencion(a.tipo, a.tasa);
@@ -1299,7 +1356,7 @@ function recalcularDerivados() {
   S.asientosNomina.forEach(a => {
     if (a.tipo === 'multa') S.multasAcum += a.valor;
     const dom = S.domiciliarios.find(d => d.nombre === a.nombre);
-    if (dom) dom.cxc += montoCuenta(a, '1455', 'debito') - montoCuenta(a, '1455', 'credito');
+    if (dom) dom.cxc += metricasDe(a).cxc_neto;
   });
 
   S.domiciliarios.forEach(d => { d.cxc = Math.max(0, Math.round(d.cxc)); });
@@ -1395,7 +1452,9 @@ function actualizarBadges() {
 async function recargarTodo() {
   // Maestros y catalogo van primero: renderNomina() y recalcularDerivados()
   // necesitan el listado de domiciliarios ya cargado.
-  await Promise.all([cargarPlanCuentas(), cargarSocios(), cargarDomiciliarios()]);
+  // El plan de cuentas solo lo lee el auditor (sql/009): para los demas roles la
+  // consulta volveria vacia, y sin detalle de asientos no necesitan los nombres.
+  await Promise.all([esAuditor() ? cargarPlanCuentas() : null, cargarSocios(), cargarDomiciliarios()]);
   fillSocioSel();
   await Promise.all([renderSocios(), renderVentas(), renderOp(), cargarAsientosNomina()]);
   recalcularDerivados();
