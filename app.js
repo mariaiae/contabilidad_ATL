@@ -40,6 +40,16 @@ const S = {
   asientosVentas: [],
   asientosNomina: [],
   asientosOp: [],
+  // Gestion operativa (sql/010)
+  terceros: [],
+  documentos: [],
+  asientosCompras: [],
+  // Pagos a proveedores (sql/011)
+  pagos: [],
+  asientosPagos: [],
+  saldos: new Map(),   // documento_id -> { total, pagado, saldo }
+  // Reglas de retencion activas (sql/012); solo para la vista previa
+  reglas: [],
 
   // Acumuladores para impuestos
   ivaAcum: { pct19: 0, pct5: 0, excluido: 0 },
@@ -111,6 +121,11 @@ function calcNomina(dom, dias) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. GENERADORES DE ASIENTOS CONTABLES
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Los generadores solo CONSTRUYEN el asiento. No lo agregan a las listas en
+// memoria (se recargan desde la base tras cada guardado) ni acumulan IVA,
+// retenciones, multas o saldos por cobrar: esas cifras se derivan de lo
+// guardado en recalcularDerivados(), que corre tras cada guardado y cada carga.
 
 /** Asiento genérico: array de { cuenta, desc, débito, crédito } */
 function buildAsiento({ comp, fecha, modulo, chip, nombre, desc, lineas }) {
@@ -186,7 +201,6 @@ function asientoSocio(tipo, socio, valor, desc, fecha) {
       ]; break;
   }
   const a = buildAsiento({ comp, fecha, modulo: 'socio', chip, nombre: socio.nombre, desc: desc || tipo, lineas });
-  S.asientosSocios.push(a);
   return a;
 }
 
@@ -204,10 +218,6 @@ function asientoVenta(tipo, cliente, valorBase, ivaPct, desc, fecha) {
         { cuenta: '4135', desc: `Ingreso servicio logístico`, debito: 0, credito: valorBase },
       ];
       if (iva > 0) lineas.push({ cuenta: '2408', desc: `IVA ${ivaPct}% generado`, debito: 0, credito: iva });
-      // Acumular IVA
-      if (ivaPct === 19) S.ivaAcum.pct19 += iva;
-      else if (ivaPct === 5) S.ivaAcum.pct5 += iva;
-      else S.ivaAcum.excluido += valorBase;
       break;
     case 'cobro':
       chip = 'chip-ok';
@@ -227,7 +237,6 @@ function asientoVenta(tipo, cliente, valorBase, ivaPct, desc, fecha) {
       ]; break;
   }
   const a = buildAsiento({ comp, fecha, modulo: 'venta', chip, nombre: cliente, desc: desc || tipo, lineas });
-  S.asientosVentas.push(a);
   return a;
 }
 
@@ -268,7 +277,6 @@ function asientoMovDom(tipo, dom, valor, desc, prov, fecha, polizaDesde, polizaH
     }
     case 'repuesto':
       chip = 'chip-cxc';
-      dom.cxc += valor;
       lineas = [
         { cuenta: '1455', desc: `Préstamo: repuesto/mto. – ${dom.nombre}`, debito: valor, credito: 0 },
         { cuenta: '1110', desc: `Pago: ${prov || '?'}`, debito: 0, credito: valor },
@@ -280,8 +288,6 @@ function asientoMovDom(tipo, dom, valor, desc, prov, fecha, polizaDesde, polizaH
       break;
     case 'multa':
       chip = 'chip-cxc';
-      dom.cxc += valor;
-      S.multasAcum += valor;
       lineas = [
         { cuenta: '1455', desc: `Multa tránsito – ${dom.nombre} – descuento nómina`, debito: valor, credito: 0 },
         { cuenta: '1110', desc: `Pago multa: ${desc || 'Infracción'}`, debito: 0, credito: valor },
@@ -293,7 +299,6 @@ function asientoMovDom(tipo, dom, valor, desc, prov, fecha, polizaDesde, polizaH
       break;
     case 'prestamo':
       chip = 'chip-cxc';
-      dom.cxc += valor;
       lineas = [
         { cuenta: '1455', desc: `Préstamo/anticipo – ${dom.nombre}`, debito: valor, credito: 0 },
         { cuenta: '1110', desc: `Desembolso préstamo`, debito: 0, credito: valor },
@@ -306,7 +311,6 @@ function asientoMovDom(tipo, dom, valor, desc, prov, fecha, polizaDesde, polizaH
   }
   const a = buildAsiento({ comp, fecha, modulo: 'nomina', chip, nombre: dom.nombre, desc: desc || tipo, lineas });
   a.alerta = alerta;
-  S.asientosNomina.push(a);
   return a;
 }
 
@@ -332,13 +336,10 @@ function asientoNomina(liq) {
     { cuenta: '2380', desc: `SS empresa – ${d.nombre}`, debito: 0, credito: liq.ssEmpresa },
   ].filter(l => l.debito > 0 || l.credito > 0);
 
-  d.cxc = Math.max(0, d.cxc - liq.descCxC);
-
   const a = buildAsiento({
     comp, fecha: today(), modulo: 'nomina', chip: 'chip-nomina',
     nombre: d.nombre, desc: `Nómina período ${new Date().toLocaleDateString('es-CO', { month: 'long', year: 'numeric' })}`, lineas
   });
-  S.asientosNomina.push(a);
   return a;
 }
 
@@ -371,9 +372,17 @@ function asientoOperacion(cat, prov, nit, valor, retePct, desc, nroFact, fecha) 
     nombre: prov, desc: desc || cat, lineas
   });
   a.reteVal = reteVal; a.netoOp = neto;
-  S.asientosOp.push(a);
   return a;
 }
+
+/**
+ * Cuentas de una compra a credito. El asiento completo, con retenciones, lo
+ * construye la base en registrar_compra() (sql/012): hacerlo en el navegador
+ * permitiria omitir la retencion desde la consola. Estas constantes solo sirven
+ * para enviar las dos lineas basicas que exige la version anterior (sql/010).
+ */
+const CUENTA_COMPRA = { gasto: '5199', inventario: '1435' };
+const CUENTA_POR_PAGAR = '2205';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 6. RENDER ASIENTO CONTABLE (HTML tabla)
@@ -570,6 +579,8 @@ function renderLibro(filtro = '') {
     ...S.asientosVentas.map(a => ({ ...a, modLabel: 'Ventas', chip: a.chip || 'chip-venta' })),
     ...S.asientosNomina.map(a => ({ ...a, modLabel: 'Nómina', chip: a.chip || 'chip-nomina' })),
     ...S.asientosOp.map(a => ({ ...a, modLabel: 'Operación', chip: 'chip-gasto' })),
+    ...S.asientosCompras.map(a => ({ ...a, modLabel: 'Compras', chip: 'chip-pendiente' })),
+    ...S.asientosPagos.map(a => ({ ...a, modLabel: 'Pagos', chip: 'chip-ok' })),
   ].reverse();
 
   const lista = filtro
@@ -770,7 +781,7 @@ function exportarCSV() {
   if (!esAuditor()) return;
   const all = [
     ...S.asientosSocios, ...S.asientosVentas,
-    ...S.asientosNomina, ...S.asientosOp
+    ...S.asientosNomina, ...S.asientosOp, ...S.asientosCompras, ...S.asientosPagos
   ];
   if (!all.length) { alert('No hay movimientos para exportar.'); return; }
   const rows = all.flatMap(a => a.lineas.map(l => [
@@ -795,7 +806,7 @@ function exportarCSV() {
 // render vuelve a leer de la BD con un JOIN.
 
 /** `modulo` en BD (plural) -> valor que usan el libro y sus filtros. */
-const MODULO_BD_A_APP = { socios: 'socio', ventas: 'venta', nomina: 'nomina', operacion: 'gasto' };
+const MODULO_BD_A_APP = { socios: 'socio', ventas: 'venta', nomina: 'nomina', operacion: 'gasto', compras: 'compra', pagos: 'pago' };
 
 const TIPO_SOCIO_LABELS = {
   capital: 'Aporte de Capital',
@@ -826,12 +837,14 @@ const CHIP_POR_TIPO = {
   repuesto: 'chip-cxc', multa: 'chip-cxc', prestamo: 'chip-cxc',
 };
 const MODULO_ETIQUETA = {
-  socios: 'Socios', ventas: 'Ventas', nomina: 'Nomina', operacion: 'Operacion',
+  socios: 'Socios', ventas: 'Ventas', nomina: 'Nomina', operacion: 'Operacion', compras: 'Compras', pagos: 'Pagos',
 };
 
 const CHIP_POR_MODULO = {
   socios: 'chip-socio', ventas: 'chip-venta',
   nomina: 'chip-nomina', operacion: 'chip-gasto',
+  compras: 'chip-pendiente',
+  pagos: 'chip-ok',
 };
 
 /** Escapa texto antes de inyectarlo como HTML (los datos vienen de la BD). */
@@ -845,6 +858,7 @@ const montoCuenta = (a, cuenta, lado) =>
 const CAMPOS_METRICAS = [
   'total_debito', 'total_credito', 'iva', 'retencion', 'cxc_neto', 'ingreso',
   'cobro_banco', 'aporte_capital', 'retiro', 'gasto_general', 'gasto_dotacion', 'gasto_poliza',
+  'cxp_neto',
 ];
 
 /** Convierte la fila de metricas_asientos() en numeros. null si no hay fila. */
@@ -875,6 +889,7 @@ function metricasDe(a) {
     gasto_general: dr('5199'),
     gasto_dotacion: dr('5120'),
     gasto_poliza: dr('5150'),
+    cxp_neto: cr('2205') - dr('2205'),
   };
   return a.metricas;
 }
@@ -959,13 +974,26 @@ function mensajeDeErrorBD(err) {
       return 'Ya existe un asiento con ese numero de comprobante. '
            + 'Recarga la pagina para sincronizar el consecutivo e intenta de nuevo.';
     }
+    if (/terceros_nit/.test(detalle + mensaje)) return 'Ya existe un tercero con ese NIT.';
     if (/codigo/.test(detalle)) return 'Ya existe una cuenta con ese codigo en el catalogo.';
     return 'Ya existe un registro con esos datos. ' + detalle;
   }
 
-  if (codigo === '23514') return 'Un valor no cumple una regla de la base de datos. ' + detalle;
+  // 23514 - validacion. Los mensajes propios (partida doble, cuentas de
+  // retencion) explican el problema; el generico de una CHECK no.
+  if (codigo === '23514') {
+    return /violates check constraint/i.test(mensaje)
+      ? 'Un valor no cumple una regla de la base de datos. ' + detalle
+      : mensaje;
+  }
   if (codigo === '23502') return 'Falta un dato obligatorio. ' + detalle;
-  if (codigo === '42501') return 'Tu sesion no tiene permiso para esta operacion.';
+  // 42501 - permisos. Los mensajes propios (triggers y funciones de la base)
+  // explican el motivo; los genericos de PostgREST no dicen nada util.
+  if (codigo === '42501') {
+    return /permission denied|row-level security/i.test(mensaje)
+      ? 'Tu sesion no tiene permiso para esta operacion.'
+      : mensaje;
+  }
   if (codigo === 'PGRST301' || /JWT|token/i.test(mensaje)) {
     return 'Tu sesion expiro. Cierra sesion y vuelve a entrar.';
   }
@@ -1035,10 +1063,10 @@ async function guardarAsientoDB(a, meta) {
 
 /**
  * Envoltorio común de los botones de guardado: bloquea el botón, persiste y,
- * si la BD falla, revierte lo que el generador ya había dejado en memoria.
+ * si la BD falla, libera el consecutivo del comprobante que no llegó a usarse.
  * @returns {Promise<number|null>} id del asiento creado, o null si fallo.
  */
-async function guardarConFeedback(btn, a, meta, arrayEnMemoria) {
+async function guardarConFeedback(btn, a, meta) {
   const htmlOriginal = btn ? btn.innerHTML : '';
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
 
@@ -1048,7 +1076,6 @@ async function guardarConFeedback(btn, a, meta, arrayEnMemoria) {
   } catch (err) {
     console.error('[Supabase] No se pudo guardar el asiento:', err);
     alert('No se pudo guardar en la base de datos:' + String.fromCharCode(10) + mensajeDeErrorBD(err));
-    if (arrayEnMemoria) arrayEnMemoria.pop();
     S.seq--;
     return null;
   } finally {
@@ -1188,10 +1215,12 @@ async function renderSocios() {
   const { filas, error } = await leerAsientos('socios');
   if (pintarEstadoTabla(body, countEl, 7, filas || [], error)) {
     if (!error) S.asientosSocios = [];
+    actualizarBadges();
     return;
   }
 
   S.asientosSocios = filas.map(asientoDesdeDB).reverse();
+  actualizarBadges();
 
   body.innerHTML = filas.map(row => {
     const a = asientoDesdeDB(row);
@@ -1218,10 +1247,12 @@ async function renderVentas() {
   const { filas, error } = await leerAsientos('ventas');
   if (pintarEstadoTabla(body, countEl, 7, filas || [], error)) {
     if (!error) S.asientosVentas = [];
+    actualizarBadges();
     return;
   }
 
   S.asientosVentas = filas.map(asientoDesdeDB).reverse();
+  actualizarBadges();
 
   body.innerHTML = filas.map(row => {
     const a = asientoDesdeDB(row);
@@ -1253,10 +1284,12 @@ async function renderOp() {
   const { filas, error } = await leerAsientos('operacion');
   if (pintarEstadoTabla(body, countEl, 7, filas || [], error)) {
     if (!error) S.asientosOp = [];
+    actualizarBadges();
     return;
   }
 
   S.asientosOp = filas.map(asientoDesdeDB).reverse();
+  actualizarBadges();
 
   body.innerHTML = filas.map(row => {
     const a = asientoDesdeDB(row);
@@ -1284,6 +1317,346 @@ async function cargarAsientosNomina() {
   const { filas, error } = await leerAsientos('nomina');
   if (error) return;
   S.asientosNomina = filas.map(asientoDesdeDB).reverse();
+}
+
+// ── GESTION OPERATIVA: terceros y compras a credito (sql/010) ───────────────
+
+const DESTINO_COMPRA_LABELS = { gasto: 'Gasto', inventario: 'Inventario' };
+const CONCEPTO_TRIBUTARIO_LABELS = {
+  bienes: 'Compra de bienes', servicios: 'Servicios', honorarios: 'Honorarios',
+  arrendamientos: 'Arrendamientos', otros: 'Otros',
+};
+const TIPO_TERCERO_LABELS = { proveedor: 'Proveedor', cliente: 'Cliente', ambos: 'Proveedor y cliente' };
+
+/** Origen de un pago. El comercial no lee el plan de cuentas: se nombra aqui. */
+const CUENTA_CAJA_GENERAL = '1105';
+const ORIGEN_PAGO_LABELS = { '1105': 'Caja General', '1110': 'Bancos' };
+const nombreOrigenPago = (codigo) =>
+  ORIGEN_PAGO_LABELS[codigo] || (esAuditor() ? nombreCuenta(codigo) : 'Otra cuenta de tesoreria');
+
+/** Terceros a los que se les puede registrar una compra. */
+const proveedores = () => S.terceros.filter(t => t.tipo === 'proveedor' || t.tipo === 'ambos');
+
+/** Carga los terceros. No lanza: si la tabla aun no existe, el resto de la app sigue. */
+async function cargarTerceros() {
+  const { data, error } = await supabase
+    .from('terceros')
+    // `*`: la columna no_sujeto_retencion (sql/012) llega cuando exista, y
+    // mientras no exista la consulta no falla.
+    .select('*')
+    .order('nombre');
+  if (error) {
+    console.error('[Supabase] No se pudo cargar terceros:', error);
+    S.terceros = [];
+    return { error };
+  }
+  S.terceros = data;
+  return { error: null };
+}
+
+/**
+ * Carga las compras con su proveedor y su asiento. El auditor recibe tambien
+ * las lineas, para el detalle; el comercial solo la cabecera del asiento,
+ * porque sql/009 no le deja leer lineas. No lanza.
+ */
+async function cargarCompras() {
+  // `!asiento_id`: con pagos_proveedores (sql/011) hay dos caminos entre
+  // documentos y asientos -el directo y el que pasa por los pagos- y sin la
+  // indicacion la base rechaza la consulta por ambigua.
+  const asiento = esAuditor()
+    ? 'asientos!asiento_id ( *, asiento_detalles ( * ) )'
+    : 'asientos!asiento_id ( * )';
+  const { data, error } = await supabase
+    .from('documentos_comerciales')
+    .select('*, terceros ( nit, nombre ), ' + asiento)
+    .order('fecha', { ascending: false })
+    .order('id', { ascending: false });
+  if (error) {
+    console.error('[Supabase] No se pudo cargar compras:', error);
+    S.documentos = [];
+    S.asientosCompras = [];
+    return { error };
+  }
+  S.documentos = data;
+  S.asientosCompras = data.filter(d => d.asientos).map(d => asientoDesdeDB(d.asientos)).reverse();
+  return { error: null };
+}
+
+/** Reglas de retencion activas (sql/012), para la vista previa. No lanza. */
+async function cargarReglas() {
+  const { data, error } = await supabase
+    .from('reglas_impuestos')
+    .select('nombre_impuesto, concepto, porcentaje, base_minima')
+    .eq('activa', true)
+    .order('id');
+  if (error) {
+    console.warn('[Supabase] Sin reglas de impuestos (vista previa desactivada):', error.message);
+    S.reglas = [];
+    return { error };
+  }
+  S.reglas = data.map(r => ({ ...r, porcentaje: Number(r.porcentaje) || 0, base_minima: Number(r.base_minima) || 0 }));
+  return { error: null };
+}
+
+/**
+ * Estimacion de la retencion mientras se llena la compra. Replica la regla de
+ * la base (valor igual o superior a la base minima, redondeo a pesos) solo para
+ * informar: el asiento lo calcula registrar_compra() y es el que vale.
+ */
+function previsualizarRetencion() {
+  const aviso = document.getElementById('compraRetencionPreview');
+  if (!aviso) return;
+  const total = parseFloat(document.getElementById('compraTotal')?.value) || 0;
+  const concepto = document.getElementById('compraConceptoTributario')?.value;
+  const proveedor = proveedores().find(t => t.id === Number(document.getElementById('compraProveedor')?.value));
+  if (!total || !concepto) { aviso.textContent = ''; return; }
+  if (proveedor?.no_sujeto_retencion) {
+    aviso.textContent = 'Proveedor no sujeto a retención: se le paga el total.';
+    return;
+  }
+  const aplicables = S.reglas.filter(r => r.concepto === concepto && total >= r.base_minima);
+  if (!aplicables.length) { aviso.textContent = 'Sin retenciones para este concepto y valor.'; return; }
+  const retenido = aplicables.reduce((suma, r) => suma + Math.round(total * r.porcentaje / 100), 0);
+  aviso.textContent = 'Retención estimada: '
+    + aplicables.map(r => r.nombre_impuesto + ' ' + r.porcentaje + ' %').join(' + ')
+    + ' = ' + fmt(retenido) + ' · Neto por pagar: ' + fmt(total - retenido);
+}
+
+/** Saldo de cada factura, en cifras agregadas (saldos_por_pagar, sql/011). No lanza. */
+async function cargarSaldos() {
+  const { data, error } = await supabase.rpc('saldos_por_pagar');
+  S.saldos = new Map();
+  if (error) {
+    console.error('[Supabase] No se pudieron cargar los saldos por pagar:', error);
+    return { error };
+  }
+  data.forEach(f => S.saldos.set(f.documento_id, {
+    total: Number(f.total) || 0,
+    pagado: Number(f.pagado) || 0,
+    saldo: Number(f.saldo) || 0,
+  }));
+  return { error: null };
+}
+
+/**
+ * Pagos con su factura, su proveedor y su asiento de egreso. El auditor recibe
+ * las lineas del asiento; el comercial solo la cabecera. No lanza.
+ */
+async function cargarPagos() {
+  const asiento = esAuditor()
+    ? 'asientos!asiento_id ( *, asiento_detalles ( * ) )'
+    : 'asientos!asiento_id ( * )';
+  const { data, error } = await supabase
+    .from('pagos_proveedores')
+    .select('*, documentos_comerciales!documento_id ( concepto, terceros ( nombre ) ), ' + asiento)
+    .order('fecha', { ascending: false })
+    .order('id', { ascending: false });
+  if (error) {
+    console.error('[Supabase] No se pudo cargar pagos:', error);
+    S.pagos = [];
+    S.asientosPagos = [];
+    return { error };
+  }
+  S.pagos = data;
+  S.asientosPagos = data.filter(p => p.asientos).map(p => asientoDesdeDB(p.asientos)).reverse();
+  return { error: null };
+}
+
+function fillProveedorSel() {
+  const sel = document.getElementById('compraProveedor');
+  if (!sel) return;
+  const elegido = sel.value;
+  sel.innerHTML = '<option value="">— Seleccionar proveedor —</option>'
+    + proveedores().map(t => '<option value="' + t.id + '">' + esc(t.nombre) + ' · ' + esc(t.nit) + '</option>').join('');
+  if (elegido) sel.value = elegido;
+}
+
+function renderTerceros(error) {
+  const body = document.getElementById('bodyTerceros');
+  const countEl = document.getElementById('countTerceros');
+  if (!body) return;
+  if (pintarEstadoTabla(body, countEl, 4, S.terceros, error)) return;
+  const auditor = esAuditor();
+  body.innerHTML = S.terceros.map(t => {
+    const exento = !!t.no_sujeto_retencion;
+    const estado = `<span class="chip ${exento ? 'chip-ok' : 'chip-gasto'}">${exento ? 'No sujeto' : 'Sujeto'}</span>`;
+    const cambiar = auditor
+      ? ` <button type="button" class="btn-ghost-sm cambiar-retencion" data-id="${t.id}" data-exento="${exento ? '1' : '0'}"
+            style="margin-left:6px;font-size:11px;padding:2px 8px">${exento ? 'Marcar sujeto' : 'Marcar no sujeto'}</button>`
+      : '';
+    return `
+    <tr>
+      <td class="mono-cell" style="font-size:12px">${esc(t.nit)}</td>
+      <td style="font-size:12.5px">${esc(t.nombre)}</td>
+      <td><span class="chip chip-gasto">${esc(TIPO_TERCERO_LABELS[t.tipo] || t.tipo)}</span></td>
+      <td>${estado}${cambiar}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderCompras(error) {
+  const body = document.getElementById('bodyCompras');
+  const countEl = document.getElementById('countCompras');
+  if (!body) return;
+  if (pintarEstadoTabla(body, countEl, 8, S.documentos, error)) return;
+  body.innerHTML = S.documentos.map(d => {
+    const a = d.asientos ? asientoDesdeDB(d.asientos) : null;
+    const estado = estadoFactura(d.id);
+    const total = Number(d.total) || 0;
+    // Retenido = valor de la factura menos lo que se le debe al proveedor (2205).
+    const neto = S.saldos.get(d.id)?.total;
+    const retenido = neto === undefined ? 0 : Math.max(0, total - neto);
+    const concepto = CONCEPTO_TRIBUTARIO_LABELS[d.concepto_tributario];
+    const saldo = estado.saldo === null
+      ? '—'
+      : `${fmt(estado.saldo)} <span class="chip ${estado.chip}" style="font-size:10.5px">${estado.etiqueta}</span>`;
+    return `
+      <tr>
+        <td>${fmtDate(d.fecha)}</td>
+        <td style="font-size:12.5px">${esc(d.terceros?.nombre) || '—'}</td>
+        <td style="color:var(--text-2);font-size:12.5px">${esc(d.concepto)}${concepto ? `<div style="font-size:10.5px;color:var(--text-3)">${esc(concepto)}</div>` : ''}</td>
+        <td><span class="chip chip-pendiente">${esc(DESTINO_COMPRA_LABELS[d.destino] || d.destino)}</span></td>
+        <td class="text-right mono-cell">${fmt(total)}</td>
+        <td class="text-right mono-cell" style="color:var(--yellow)">${retenido > 0 ? fmt(retenido) : '—'}</td>
+        <td class="text-right mono-cell">${saldo}</td>
+        <td class="mono-cell" style="font-size:11px;color:var(--accent)">${esc(a?.comp) || '—'}</td>
+      </tr>
+      ${a ? filaDetalle(a, 8) : ''}`;
+  }).join('');
+}
+
+/** Estado de una factura segun su saldo (null si aun no hay saldos cargados). */
+function estadoFactura(documentoId) {
+  const s = S.saldos.get(documentoId);
+  if (!s) return { etiqueta: '—', chip: 'chip-pendiente', saldo: null };
+  if (s.saldo <= 0) return { etiqueta: 'Pagada', chip: 'chip-ok', saldo: 0 };
+  if (s.pagado > 0) return { etiqueta: 'Abonada', chip: 'chip-pendiente', saldo: s.saldo };
+  return { etiqueta: 'Pendiente', chip: 'chip-pendiente', saldo: s.saldo };
+}
+
+/** Facturas con saldo pendiente, para el formulario de pago. */
+function fillFacturasPendientes() {
+  const sel = document.getElementById('pagoFactura');
+  if (!sel) return;
+  const elegida = sel.value;
+  const pendientes = S.documentos.filter(d => (S.saldos.get(d.id)?.saldo || 0) > 0);
+  sel.innerHTML = '<option value="">— Seleccionar factura —</option>'
+    + pendientes.map(d => '<option value="' + d.id + '">'
+        + esc(d.terceros?.nombre || 'Proveedor') + ' · ' + esc(d.concepto)
+        + ' · saldo ' + fmt(S.saldos.get(d.id).saldo) + '</option>').join('');
+  if (elegida && pendientes.some(d => String(d.id) === elegida)) sel.value = elegida;
+  mostrarSaldoFactura();
+}
+
+/** Muestra el saldo de la factura elegida; al cambiarla, propone pagarlo completo. */
+function mostrarSaldoFactura({ proponerValor = false } = {}) {
+  const sel = document.getElementById('pagoFactura');
+  const bloque = document.getElementById('pagoSaldoBloque');
+  const saldoEl = document.getElementById('pagoSaldo');
+  if (!sel || !bloque || !saldoEl) return;
+  const saldo = S.saldos.get(Number(sel.value))?.saldo;
+  if (!sel.value || saldo === undefined) { bloque.style.display = 'none'; return; }
+  bloque.style.display = '';
+  saldoEl.textContent = fmt(saldo);
+  const valor = document.getElementById('pagoValor');
+  if (proponerValor && valor) valor.value = String(saldo);
+}
+
+/**
+ * Origen del pago. Comercial: fijo en Caja General y no editable (la base
+ * rechaza cualquier otro). Auditor: cualquier cuenta de detalle del grupo 11
+ * Disponible que tenga el catalogo.
+ */
+function fillOrigenPago() {
+  const sel = document.getElementById('pagoOrigen');
+  const nota = document.getElementById('pagoOrigenNota');
+  if (!sel) return;
+  if (!esAuditor()) {
+    sel.innerHTML = '<option value="' + CUENTA_CAJA_GENERAL + '">Caja General</option>';
+    sel.value = CUENTA_CAJA_GENERAL;
+    sel.disabled = true;
+    if (nota) nota.style.display = '';
+    return;
+  }
+  const elegida = sel.value || CUENTA_CAJA_GENERAL;
+  const tesoreria = [...CUENTAS.keys()].filter(c => c.length === 4 && c.startsWith('11')).sort();
+  const opciones = tesoreria.length ? tesoreria : [CUENTA_CAJA_GENERAL];
+  sel.innerHTML = opciones.map(c => '<option value="' + c + '">'
+    + esc(ORIGEN_PAGO_LABELS[c] || nombreCuenta(c)) + ' (' + c + ')</option>').join('');
+  sel.value = opciones.includes(elegida) ? elegida : opciones[0];
+  sel.disabled = false;
+  if (nota) nota.style.display = 'none';
+}
+
+function renderPagos(error) {
+  const body = document.getElementById('bodyPagos');
+  const countEl = document.getElementById('countPagos');
+  if (!body) return;
+  if (pintarEstadoTabla(body, countEl, 6, S.pagos, error)) return;
+  body.innerHTML = S.pagos.map(p => {
+    const a = p.asientos ? asientoDesdeDB(p.asientos) : null;
+    const doc = p.documentos_comerciales;
+    return `
+      <tr>
+        <td>${fmtDate(p.fecha)}</td>
+        <td style="font-size:12.5px">${esc(doc?.terceros?.nombre) || '—'}</td>
+        <td style="color:var(--text-2);font-size:12.5px">${esc(doc?.concepto) || '—'}</td>
+        <td class="text-right mono-cell">${fmt(Number(p.valor) || 0)}</td>
+        <td><span class="chip chip-ok">${esc(nombreOrigenPago(p.cuenta_origen))}</span></td>
+        <td class="mono-cell" style="font-size:11px;color:var(--accent)">${esc(a?.comp) || '—'}</td>
+      </tr>
+      ${a ? filaDetalle(a, 6) : ''}`;
+  }).join('');
+}
+
+/** Indicadores de pagos: salen de saldos_por_pagar(), nunca de las lineas. */
+function updateKpiPagos() {
+  const poner = (id, texto) => { const el = document.getElementById(id); if (el) el.textContent = texto; };
+  let saldo = 0, pagado = 0, pendientes = 0, pagadas = 0;
+  S.saldos.forEach(f => {
+    saldo += f.saldo;
+    pagado += f.pagado;
+    if (f.saldo > 0) pendientes++;
+    else pagadas++;
+  });
+  poner('kpi-saldo-por-pagar', fmt(saldo));
+  poner('kpi-pagado', fmt(pagado));
+  poner('kpi-facturas-pendientes', String(pendientes));
+  poner('kpi-facturas-pagadas', String(pagadas));
+}
+
+/** Indicadores de la gestion operativa: salen de los documentos, no de las lineas. */
+function updateKpiCompras() {
+  const poner = (id, texto) => { const el = document.getElementById(id); if (el) el.textContent = texto; };
+  let total = 0, gasto = 0, inventario = 0;
+  S.documentos.forEach(d => {
+    const valor = Number(d.total) || 0;
+    total += valor;
+    if (d.destino === 'inventario') inventario += valor;
+    else gasto += valor;
+  });
+  poner('kpi-compras-total', fmt(total));
+  poner('kpi-compras-gasto', fmt(gasto));
+  poner('kpi-compras-inventario', fmt(inventario));
+  poner('kpi-proveedores-count', String(proveedores().length));
+}
+
+/** Carga y repinta toda la gestion operativa: terceros, reglas, compras y pagos. No lanza. */
+async function recargarGestionOperativa() {
+  const [terceros, compras, saldos, pagos] = await Promise.all([
+    cargarTerceros(), cargarCompras(), cargarSaldos(), cargarPagos(), cargarReglas(),
+  ]);
+  fillProveedorSel();
+  renderTerceros(terceros.error);
+  renderCompras(compras.error);
+  updateKpiCompras();
+  fillFacturasPendientes();
+  fillOrigenPago();
+  renderPagos(pagos.error);
+  updateKpiPagos();
+  previsualizarRetencion();
+  actualizarBadges();
+  if (saldos.error) console.warn('[Pagos] Sin saldos por pagar: la columna Saldo y el formulario de pago quedan vacios.');
 }
 
 /**
@@ -1329,6 +1702,8 @@ function conceptoRetencion(categoria, tasa) {
  * al vuelo en variables de memoria y se perdía al recargar la página:
  * IVA por tarifa, retenciones por concepto, multas no deducibles y el saldo
  * de cuentas por cobrar de cada domiciliario.
+ *
+ * Es la UNICA fuente de estas cifras: ningun generador de asientos las toca.
  */
 function recalcularDerivados() {
   S.ivaAcum = { pct19: 0, pct5: 0, excluido: 0 };
@@ -1421,6 +1796,7 @@ async function cargarDomiciliarios() {
     id: d.id, nombre: d.nombre, doc: d.documento, placa: d.placa,
     tel: d.telefono, ingreso: d.ingreso, cxc: 0,
   }));
+  actualizarBadges();
 }
 
 /** Siguiente id libre de la serie D001, D002, ... */
@@ -1433,9 +1809,9 @@ function siguienteIdDomiciliario() {
 }
 
 /**
- * Contadores de la barra lateral. Estaban fijos en `0` en el HTML y solo
- * nomina se actualizaba, asi que la barra decia 0 mientras la tabla mostraba
- * registros.
+ * Contadores de la barra lateral. Se llama cada vez que se recargan los datos
+ * de un modulo (tablas, domiciliarios, gestion operativa), asi no depende de
+ * que cada boton de guardado se acuerde de hacerlo.
  */
 function actualizarBadges() {
   const poner = (id, n) => {
@@ -1445,6 +1821,7 @@ function actualizarBadges() {
   poner('badge-socios', S.asientosSocios.length);
   poner('badge-clientes', S.asientosVentas.length);
   poner('badge-operacion', S.asientosOp.length);
+  poner('badge-compras', S.documentos.length);
   poner('badge-nomina', S.domiciliarios.length);
 }
 
@@ -1456,7 +1833,7 @@ async function recargarTodo() {
   // consulta volveria vacia, y sin detalle de asientos no necesitan los nombres.
   await Promise.all([esAuditor() ? cargarPlanCuentas() : null, cargarSocios(), cargarDomiciliarios()]);
   fillSocioSel();
-  await Promise.all([renderSocios(), renderVentas(), renderOp(), cargarAsientosNomina()]);
+  await Promise.all([renderSocios(), renderVentas(), renderOp(), cargarAsientosNomina(), recargarGestionOperativa()]);
   recalcularDerivados();
   updateKpiSocios();
   updateKpiVentas();
@@ -1630,11 +2007,17 @@ async function consultarDiario(desde, hasta, modulo) {
 }
 
 /** Pinta el Libro Diario con el periodo elegido en los filtros. */
+// Numero de la consulta mas reciente del Libro Diario. Cada cambio de filtro
+// lanza una consulta; si una anterior responde despues, pisaria el resultado
+// de la nueva y la tabla no corresponderia a los filtros visibles.
+let consultaDiarioVigente = 0;
+
 async function renderDiario() {
   if (!esAuditor()) return;   // modulo reservado: ni siquiera se consulta
   const body = document.getElementById('bodyDiario');
   const foot = document.getElementById('footDiario');
   if (!body) return;
+  const miConsulta = ++consultaDiarioVigente;
 
   const desde = document.getElementById('diarioDesde')?.value;
   const hasta = document.getElementById('diarioHasta')?.value;
@@ -1656,6 +2039,7 @@ async function renderDiario() {
   body.dataset.consultado = '1';   // recargarTodo() lo usa para refrescar esta vista
 
   const { filas, error } = await consultarDiario(desde, hasta, modulo);
+  if (miConsulta !== consultaDiarioVigente) return;   // llego tarde: hay una consulta mas reciente
 
   if (error) {
     body.innerHTML = `<tr><td colspan="6" class="empty-row" style="color:var(--red)">
@@ -2079,7 +2463,7 @@ Object.assign(window, {
 document.addEventListener('DOMContentLoaded', () => {
 
   // Fechas por defecto
-  ['fechaSocio', 'fechaVenta', 'fechaMovDom', 'fechaOp'].forEach(id => {
+  ['fechaSocio', 'fechaVenta', 'fechaMovDom', 'fechaOp', 'compraFecha', 'pagoFecha'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = today();
   });
 
@@ -2187,7 +2571,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const guardado = await guardarConFeedback(btn, a, {
       modulo: 'socios', tipo, modalidad, soporte, valor,
       clasificacion: categoriaContable,
-    }, S.asientosSocios);
+    });
     if (!guardado) return;
 
     await subirAdjuntoSiHay('soporteArchivo', guardado, btn);
@@ -2235,7 +2619,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const guardado = await guardarConFeedback(btn, a, {
       modulo: 'ventas', tipo, valor, nit, tasa: ivaPct, vencimiento: venc || null,
-    }, S.asientosVentas);
+    });
     if (!guardado) return;
 
     await subirAdjuntoSiHay('soporteArchivoVenta', guardado, btn);
@@ -2279,11 +2663,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const guardado = await guardarConFeedback(btn, a, {
       // En polizas, `vencimiento` guarda el fin de vigencia.
       modulo: 'nomina', tipo, valor, vencimiento: (tipo === 'poliza' && ph) ? ph : null,
-    }, S.asientosNomina);
+    });
 
-    // asientoMovDom() ya habia movido dom.cxc en memoria; se recalcula siempre
-    // desde la BD para que el saldo refleje solo lo realmente persistido.
-    if (!guardado) { recalcularDerivados(); renderNomina(); return; }
+    if (!guardado) return;
 
     await subirAdjuntoSiHay('soporteArchivoDom', guardado, btn);
 
@@ -2306,8 +2688,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const htmlOriginal = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.textContent = 'Liquidando...'; }
 
-    // Cada trabajador genera su propio asiento; si uno falla se revierte solo
-    // ese y se sigue con el resto, informando al final cuales quedaron fuera.
+    // Cada trabajador genera su propio asiento; si uno falla se libera su
+    // consecutivo y se sigue con el resto, informando al final cuales quedaron fuera.
     const fallidos = [];
     try {
       for (const dom of S.domiciliarios) {
@@ -2318,7 +2700,6 @@ document.addEventListener('DOMContentLoaded', () => {
           await guardarAsientoDB(a, { modulo: 'nomina', tipo: 'liquidacion', valor: a.totD });
         } catch (err) {
           console.error('[Supabase] No se pudo guardar la nomina de', dom.nombre, err);
-          S.asientosNomina.pop();
           S.seq--;
           fallidos.push(dom.nombre);
         }
@@ -2389,7 +2770,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const a = asientoNomina(S.liqActual);
       const guardado = await guardarConFeedback(btn, a, {
         modulo: 'nomina', tipo: 'liquidacion', valor: a.totD,
-      }, S.asientosNomina);
+      });
       if (guardado) await cargarAsientosNomina();
       recalcularDerivados();
       renderNomina(); renderLibro(); updateImpuestos();
@@ -2418,7 +2799,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const guardado = await guardarConFeedback(btn, a, {
       // `cat` es el tipo de gasto; el numero de factura es su soporte documental.
       modulo: 'operacion', tipo: cat, valor, nit, tasa: pct, soporte: nroF,
-    }, S.asientosOp);
+    });
     if (!guardado) return;
 
     await subirAdjuntoSiHay('soporteArchivoOp', guardado, btn);
@@ -2470,6 +2851,179 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnExportDiario')?.addEventListener('click', exportarDiario);
   ['diarioDesde', 'diarioHasta', 'diarioModulo'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', renderDiario);
+  });
+
+  // ══ GESTION OPERATIVA ══
+  document.getElementById('btnGuardarTercero')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnGuardarTercero');
+    const nit = document.getElementById('terceroNit').value.trim();
+    const nombre = document.getElementById('terceroNombre').value.trim();
+    const tipo = document.getElementById('terceroTipo').value;
+    const noSujeto = esAuditor() && !!document.getElementById('terceroNoSujeto')?.checked;
+    if (!/[0-9]/.test(nit) || !nombre) { alert('Indica el NIT y el nombre del tercero.'); return; }
+
+    const tercero = { nit, nombre, tipo };
+    // Solo el auditor marca exenciones; la base lo impide a los demas roles (sql/012).
+    if (noSujeto) tercero.no_sujeto_retencion = true;
+
+    const htmlOriginal = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+    const { error } = await supabase.from('terceros').insert(tercero);
+    if (btn) { btn.disabled = false; btn.innerHTML = htmlOriginal; }
+
+    if (error) {
+      console.error('[Supabase] No se pudo registrar el tercero:', error);
+      alert('No se pudo registrar el tercero:' + String.fromCharCode(10) + mensajeDeErrorBD(error));
+      return;
+    }
+    ['terceroNit', 'terceroNombre'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    const casilla = document.getElementById('terceroNoSujeto');
+    if (casilla) casilla.checked = false;
+    await recargarGestionOperativa();
+  });
+
+  document.getElementById('btnGuardarCompra')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnGuardarCompra');
+    const proveedorId = Number(document.getElementById('compraProveedor').value);
+    const concepto = document.getElementById('compraConcepto').value.trim();
+    const total = Math.round((parseFloat(document.getElementById('compraTotal').value) || 0) * 100) / 100;
+    const destino = document.getElementById('compraDestino').value;
+    const conceptoTributario = document.getElementById('compraConceptoTributario').value;
+    const fecha = document.getElementById('compraFecha').value || today();
+
+    const proveedor = proveedores().find(t => t.id === proveedorId);
+    if (!proveedor || !concepto || total <= 0) { alert('Completa proveedor, concepto y valor total.'); return; }
+    if (!conceptoTributario) {
+      alert('Indica el concepto tributario de la compra: de él depende la retención.');
+      return;
+    }
+
+    // La base construye el asiento completo: debito a gasto o inventario, las
+    // retenciones que correspondan segun reglas_impuestos y el neto a 2205.
+    const comprobante = nextComp('COM');
+
+    const htmlOriginal = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+    const { data, error } = await supabase.rpc('registrar_compra', {
+      p_documento: { proveedor_id: proveedor.id, concepto, total, destino, fecha, concepto_tributario: conceptoTributario },
+      p_asiento: {
+        comprobante,
+        // Solo para la version anterior de la funcion (sql/010), que exigia las
+        // lineas basicas. sql/012 las ignora y construye el asiento con retenciones.
+        lineas: [
+          { cuenta: CUENTA_COMPRA[destino], descripcion: concepto, debito: total, credito: 0 },
+          { cuenta: CUENTA_POR_PAGAR, descripcion: 'Por pagar a ' + proveedor.nombre, debito: 0, credito: total },
+        ],
+      },
+    });
+    if (btn) { btn.disabled = false; btn.innerHTML = htmlOriginal; }
+
+    if (error) {
+      S.seq--;   // el comprobante no llego a usarse
+      console.error('[Supabase] No se pudo registrar la compra:', error);
+      alert('No se pudo registrar la compra:' + String.fromCharCode(10) + mensajeDeErrorBD(error));
+      return;
+    }
+
+    await recargarGestionOperativa();
+
+    // Auditor: tarjeta con el asiento, leido de la base porque lo construyo el
+    // servidor. Comercial: solo la confirmacion.
+    if (esAuditor()) {
+      const { data: fila } = await supabase
+        .from('asientos')
+        .select('*, asiento_detalles ( * )')
+        .eq('id', data.asiento_id)
+        .single();
+      if (fila) showAsiento('asientoCompra', 'compCompra', 'asientoBodyCompra', asientoDesdeDB(fila));
+    } else {
+      showAsiento('asientoCompra', 'compCompra', 'asientoBodyCompra', { comp: comprobante });
+    }
+    renderLibro();
+    if (document.getElementById('bodyDiario')?.dataset.consultado === '1') renderDiario();
+
+    ['compraConcepto', 'compraTotal', 'compraConceptoTributario'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    previsualizarRetencion();
+  });
+
+  // Auditor: marcar o desmarcar un tercero como no sujeto a retencion.
+  document.addEventListener('click', async (e) => {
+    const boton = e.target.closest('.cambiar-retencion');
+    if (!boton || !esAuditor()) return;
+    const exento = boton.dataset.exento !== '1';
+    boton.disabled = true;
+    const { error } = await supabase
+      .from('terceros')
+      .update({ no_sujeto_retencion: exento })
+      .eq('id', Number(boton.dataset.id));
+    if (error) {
+      boton.disabled = false;
+      alert('No se pudo actualizar el tercero:' + String.fromCharCode(10) + mensajeDeErrorBD(error));
+      return;
+    }
+    await recargarGestionOperativa();
+  });
+
+  // Estimacion de la retencion mientras se llena la compra.
+  ['compraTotal', 'compraConceptoTributario', 'compraProveedor'].forEach(id => {
+    const campo = document.getElementById(id);
+    campo?.addEventListener('input', previsualizarRetencion);
+    campo?.addEventListener('change', previsualizarRetencion);
+  });
+
+  // ══ PAGOS A PROVEEDORES ══
+  document.getElementById('pagoFactura')?.addEventListener('change', () => mostrarSaldoFactura({ proponerValor: true }));
+
+  document.getElementById('btnRegistrarPago')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnRegistrarPago');
+    const documentoId = Number(document.getElementById('pagoFactura').value);
+    const valor = Math.round((parseFloat(document.getElementById('pagoValor').value) || 0) * 100) / 100;
+    const fecha = document.getElementById('pagoFecha').value || today();
+    const saldo = S.saldos.get(documentoId)?.saldo;
+
+    if (!documentoId || saldo === undefined) { alert('Selecciona la factura que vas a pagar.'); return; }
+    if (valor <= 0) { alert('Indica el valor del pago.'); return; }
+    if (valor > saldo) {
+      alert('El pago (' + fmt(valor) + ') supera el saldo pendiente de la factura (' + fmt(saldo) + ').');
+      return;
+    }
+
+    // La base construye el asiento de egreso y vuelve a validar saldo y origen.
+    const comprobante = nextComp('PAG');
+    const pago = { documento_id: documentoId, valor, fecha, comprobante };
+    // Solo el auditor elige el origen; para el comercial la base fija Caja General.
+    if (esAuditor()) pago.cuenta_origen = document.getElementById('pagoOrigen').value;
+
+    const htmlOriginal = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Registrando...'; }
+    const { data, error } = await supabase.rpc('registrar_pago', { p_pago: pago });
+    if (btn) { btn.disabled = false; btn.innerHTML = htmlOriginal; }
+
+    if (error) {
+      S.seq--;   // el comprobante no llego a usarse
+      console.error('[Supabase] No se pudo registrar el pago:', error);
+      alert('No se pudo registrar el pago:' + String.fromCharCode(10) + mensajeDeErrorBD(error));
+      return;
+    }
+
+    await recargarGestionOperativa();
+
+    // Auditor: tarjeta con el asiento de egreso, leido de la base porque lo
+    // construyo el servidor. Comercial: solo la confirmacion.
+    if (esAuditor()) {
+      const { data: fila } = await supabase
+        .from('asientos')
+        .select('*, asiento_detalles ( * )')
+        .eq('id', data.asiento_id)
+        .single();
+      if (fila) showAsiento('asientoPago', 'compPago', 'asientoBodyPago', asientoDesdeDB(fila));
+    } else {
+      showAsiento('asientoPago', 'compPago', 'asientoBodyPago', { comp: comprobante });
+    }
+    renderLibro();
+    if (document.getElementById('bodyDiario')?.dataset.consultado === '1') renderDiario();
+
+    document.getElementById('pagoValor').value = '';
   });
 
   // ══ FILTRO LIBRO ══

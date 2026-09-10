@@ -82,6 +82,18 @@
         <span class="nav-badge" id="badge-operacion">0</span>
       </button>
 
+      <button class="nav-item" data-tab="compras" id="nav-compras">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="9" cy="21" r="1" />
+            <circle cx="20" cy="21" r="1" />
+            <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+          </svg>
+        </span>
+        <span class="nav-label">Gestión Operativa</span>
+        <span class="nav-badge" id="badge-compras">0</span>
+      </button>
+
       <button class="nav-item solo-auditor" data-tab="diario" id="nav-diario">
         <span class="nav-icon">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -780,6 +792,266 @@
     </section>
 
     <!-- ═══════════════════════════════════════════
+         TAB — GESTIÓN OPERATIVA (terceros y compras a crédito)
+    ═══════════════════════════════════════════ -->
+    <section class="tab-panel" id="panel-compras">
+      <div class="panel-top">
+        <div class="panel-heading">
+          <h1 class="panel-title">Gestión Operativa</h1>
+          <p class="panel-desc">Proveedores y compras a crédito. Cada compra genera su asiento contra cuentas por pagar.</p>
+        </div>
+      </div>
+
+      <div class="kpi-strip">
+        <div class="kpi-card">
+          <span class="kpi-label">Total Compras</span>
+          <span class="kpi-value danger" id="kpi-compras-total">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">A Gasto</span>
+          <span class="kpi-value" id="kpi-compras-gasto">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">A Inventario</span>
+          <span class="kpi-value" id="kpi-compras-inventario">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Proveedores</span>
+          <span class="kpi-value" id="kpi-proveedores-count">0</span>
+        </div>
+      </div>
+
+      <div class="two-col-layout">
+        <div class="card form-card">
+          <div class="card-header">
+            <span class="card-title">Nueva Compra</span>
+          </div>
+          <div class="card-body">
+            <div class="field-group">
+              <label class="field-label" for="compraProveedor">Proveedor</label>
+              <select class="field-select" id="compraProveedor">
+                <option value="">— Seleccionar proveedor —</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="compraConcepto">Concepto</label>
+              <input type="text" class="field-input" id="compraConcepto" placeholder="Ej: Repuestos para motos, factura FV-120" />
+            </div>
+            <div class="field-row">
+              <div class="field-group">
+                <label class="field-label" for="compraTotal">Valor total ($)</label>
+                <input type="number" class="field-input" id="compraTotal" placeholder="0" min="0" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="compraFecha">Fecha</label>
+                <input type="date" class="field-input" id="compraFecha" />
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="compraDestino">Destino</label>
+              <select class="field-select" id="compraDestino">
+                <option value="gasto">Gasto del período</option>
+                <option value="inventario">Inventario (mercancía)</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="compraConceptoTributario">Concepto tributario</label>
+              <select class="field-select" id="compraConceptoTributario">
+                <option value="">— Seleccionar —</option>
+                <option value="bienes">Compra de bienes</option>
+                <option value="servicios">Servicios</option>
+                <option value="honorarios">Honorarios</option>
+                <option value="arrendamientos">Arrendamientos</option>
+                <option value="otros">Otros</option>
+              </select>
+              <small id="compraRetencionPreview" style="color: var(--text-muted); font-size: 11px;"></small>
+            </div>
+            <button class="btn-primary full" id="btnGuardarCompra">Registrar Compra</button>
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="card-header">
+            <span class="card-title">Historial de Compras</span>
+            <span class="card-count" id="countCompras">0 registros</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Proveedor</th>
+                  <th>Concepto</th>
+                  <th>Destino</th>
+                  <th class="text-right">Total</th>
+                  <th class="text-right">Retenido</th>
+                  <th class="text-right">Saldo</th>
+                  <th>Asiento</th>
+                </tr>
+              </thead>
+              <tbody id="bodyCompras">
+                <tr><td colspan="8" class="empty-row">Sin registros aún.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card asiento-display hidden solo-auditor" id="asientoCompra">
+        <div class="card-header">
+          <span class="card-title">Asiento Contable Generado</span>
+          <span class="asiento-comprobante" id="compCompra"></span>
+        </div>
+        <div class="card-body" id="asientoBodyCompra"></div>
+      </div>
+
+      <!-- ═══ Pagos a proveedores (sql/011) ═══ -->
+      <div class="kpi-strip">
+        <div class="kpi-card">
+          <span class="kpi-label">Saldo por Pagar</span>
+          <span class="kpi-value danger" id="kpi-saldo-por-pagar">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Pagado a Proveedores</span>
+          <span class="kpi-value" id="kpi-pagado">$0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Facturas Pendientes</span>
+          <span class="kpi-value" id="kpi-facturas-pendientes">0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Facturas Pagadas</span>
+          <span class="kpi-value" id="kpi-facturas-pagadas">0</span>
+        </div>
+      </div>
+
+      <div class="two-col-layout">
+        <div class="card form-card">
+          <div class="card-header">
+            <span class="card-title">Registrar Pago</span>
+          </div>
+          <div class="card-body">
+            <div class="field-group">
+              <label class="field-label" for="pagoFactura">Factura por pagar</label>
+              <select class="field-select" id="pagoFactura">
+                <option value="">— Seleccionar factura —</option>
+              </select>
+            </div>
+            <div class="field-group" id="pagoSaldoBloque" style="display:none">
+              <span class="field-label">Saldo pendiente</span>
+              <span class="kpi-value danger" id="pagoSaldo" style="font-size:20px">$0</span>
+            </div>
+            <div class="field-row">
+              <div class="field-group">
+                <label class="field-label" for="pagoValor">Valor a pagar ($)</label>
+                <input type="number" class="field-input" id="pagoValor" placeholder="0" min="0" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="pagoFecha">Fecha</label>
+                <input type="date" class="field-input" id="pagoFecha" />
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="pagoOrigen">Origen del pago</label>
+              <select class="field-select" id="pagoOrigen" disabled>
+                <option value="1105">Caja General</option>
+              </select>
+              <small id="pagoOrigenNota" style="color: var(--text-muted); font-size: 11px;">Los pagos de tu perfil salen siempre de Caja General.</small>
+            </div>
+            <button class="btn-primary full" id="btnRegistrarPago">Registrar Pago</button>
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="card-header">
+            <span class="card-title">Historial de Pagos</span>
+            <span class="card-count" id="countPagos">0 registros</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Proveedor</th>
+                  <th>Factura</th>
+                  <th class="text-right">Valor</th>
+                  <th>Origen</th>
+                  <th>Asiento</th>
+                </tr>
+              </thead>
+              <tbody id="bodyPagos">
+                <tr><td colspan="6" class="empty-row">Sin registros aún.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card asiento-display hidden solo-auditor" id="asientoPago">
+        <div class="card-header">
+          <span class="card-title">Asiento de Egreso Generado</span>
+          <span class="asiento-comprobante" id="compPago"></span>
+        </div>
+        <div class="card-body" id="asientoBodyPago"></div>
+      </div>
+
+      <div class="two-col-layout">
+        <div class="card form-card">
+          <div class="card-header">
+            <span class="card-title">Nuevo Tercero</span>
+          </div>
+          <div class="card-body">
+            <div class="field-group">
+              <label class="field-label" for="terceroNit">NIT / Documento</label>
+              <input type="text" class="field-input" id="terceroNit" placeholder="900.123.456-7" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="terceroNombre">Nombre o razón social</label>
+              <input type="text" class="field-input" id="terceroNombre" placeholder="Ej: Repuestos del Norte SAS" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="terceroTipo">Tipo</label>
+              <select class="field-select" id="terceroTipo">
+                <option value="proveedor">Proveedor</option>
+                <option value="cliente">Cliente</option>
+                <option value="ambos">Proveedor y cliente</option>
+              </select>
+            </div>
+            <div class="field-group solo-auditor">
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer">
+                <input type="checkbox" id="terceroNoSujeto" />
+                No sujeto a retención (autorretenedor, régimen simple)
+              </label>
+            </div>
+            <button class="btn-primary full" id="btnGuardarTercero">Registrar Tercero</button>
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="card-header">
+            <span class="card-title">Terceros</span>
+            <span class="card-count" id="countTerceros">0 registros</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>NIT</th>
+                  <th>Nombre</th>
+                  <th>Tipo</th>
+                  <th>Retención</th>
+                </tr>
+              </thead>
+              <tbody id="bodyTerceros">
+                <tr><td colspan="4" class="empty-row">Sin registros aún.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════
          TAB 5 — IMPUESTOS
     ═══════════════════════════════════════════ -->
     <!-- ═══════════════════════════════════════════
@@ -811,6 +1083,8 @@
               <option value="ventas">Clientes · Ventas</option>
               <option value="nomina">Trabajadores · Nómina</option>
               <option value="operacion">Operación · Proveedores</option>
+              <option value="compras">Gestión Operativa · Compras</option>
+              <option value="pagos">Gestión Operativa · Pagos</option>
             </select>
             <button class="btn-primary" id="btnConsultarDiario"
                     style="font-size:12px;padding:6px 14px">Consultar</button>
@@ -998,6 +1272,8 @@
               <option value="nomina">Nómina</option>
               <option value="venta">Venta</option>
               <option value="socio">Socio</option>
+              <option value="compra">Compra a crédito</option>
+              <option value="pago">Pago a proveedor</option>
             </select>
             <button class="btn-ghost-sm" id="btnExportCSV">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
