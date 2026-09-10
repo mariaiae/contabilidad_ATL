@@ -471,6 +471,11 @@
           <p class="panel-desc">4 domiciliarios con moto propia. Rodamiento <strong>no salarial</strong>. Gestión de
             descuentos y prestaciones.</p>
         </div>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+          <div class="field-group" style="margin:0">
+            <label class="field-label" for="periodoNomina">Período a liquidar</label>
+            <input type="month" class="field-input" id="periodoNomina" />
+          </div>
         <button class="btn-primary" id="btnLiquidarPeriodo">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
@@ -478,6 +483,7 @@
           </svg>
           Liquidar Período
         </button>
+        </div>
       </div>
 
       <!-- Parámetros legales -->
@@ -1223,29 +1229,30 @@
           </div>
           <div class="card-body tax-body">
             <div class="tax-row">
-              <span class="tax-label">Retenido a proveedores (3.5%)</span>
-              <span class="tax-value mono" id="rte-compras">$0</span>
+              <span class="tax-label">Compras de bienes</span>
+              <span class="tax-value mono" id="rte-bienes">$0</span>
             </div>
             <div class="tax-row">
-              <span class="tax-label">Retenido honorarios J. (4%)</span>
-              <span class="tax-value mono" id="rte-hon-j">$0</span>
+              <span class="tax-label">Honorarios</span>
+              <span class="tax-value mono" id="rte-honorarios">$0</span>
             </div>
             <div class="tax-row">
-              <span class="tax-label">Retenido honorarios N. (11%)</span>
-              <span class="tax-value mono" id="rte-hon-n">$0</span>
+              <span class="tax-label">Servicios</span>
+              <span class="tax-value mono" id="rte-servicios">$0</span>
             </div>
             <div class="tax-row">
-              <span class="tax-label">Retenido servicios (6%)</span>
-              <span class="tax-value mono" id="rte-serv">$0</span>
+              <span class="tax-label">Arrendamientos</span>
+              <span class="tax-value mono" id="rte-arrendamientos">$0</span>
             </div>
             <div class="tax-row">
-              <span class="tax-label">Retenido arrendamientos (3.5%)</span>
-              <span class="tax-value mono" id="rte-arriendo">$0</span>
+              <span class="tax-label">Otros conceptos</span>
+              <span class="tax-value mono" id="rte-otros">$0</span>
             </div>
             <div class="tax-row total">
               <span class="tax-label">TOTAL RETENCIONES A DECLARAR</span>
               <span class="tax-value mono accent" id="rte-total">$0</span>
             </div>
+            <p class="tax-disclaimer">Suma lo acreditado en el mes a la cuenta 2370 en todos los módulos: gastos de Operación y compras de Gestión Operativa.</p>
             <div class="tax-status">
               <span class="status-dot pending"></span>
               <span class="status-text" id="rteStatus">Pendiente de declarar</span>
@@ -1257,15 +1264,15 @@
         <div class="card tax-card">
           <div class="card-header">
             <span class="card-title">IVA Generado (Ventas)</span>
-            <span class="tax-periodo">Bimestre actual</span>
+            <span class="tax-periodo" id="ivaPeriodo">Bimestre actual</span>
           </div>
           <div class="card-body tax-body">
             <div class="tax-row">
-              <span class="tax-label">IVA facturado (19%)</span>
+              <span class="tax-label">IVA neto 19 % (facturas menos notas crédito)</span>
               <span class="tax-value mono" id="iva19">$0</span>
             </div>
             <div class="tax-row">
-              <span class="tax-label">IVA facturado (5%)</span>
+              <span class="tax-label">IVA neto 5 % (facturas menos notas crédito)</span>
               <span class="tax-value mono" id="iva5">$0</span>
             </div>
             <div class="tax-row">
@@ -1287,7 +1294,7 @@
         <div class="card tax-card">
           <div class="card-header">
             <span class="card-title">ICA — Industria y Comercio</span>
-            <span class="tax-periodo">Anual</span>
+            <span class="tax-periodo" id="icaPeriodo">Anual</span>
           </div>
           <div class="card-body tax-body">
             <div class="tax-row">
@@ -1520,6 +1527,49 @@
            style="margin-top:10px;padding:9px 11px;border-radius:7px;font-size:11.5px;line-height:1.5;
                   background:var(--bg-2,#141414);border:1px solid var(--border,#333);
                   color:var(--text-2,#bbb);word-break:break-word"></div>
+    </form>
+  </div>
+
+  <!-- ══════════════ SEGUNDO FACTOR (auditor) ══════════════
+       Cubre la aplicación hasta que el auditor confirma su código de 6 dígitos. -->
+  <div id="pantallaMfa" hidden
+       style="position:fixed;inset:0;z-index:10001;display:none;align-items:center;
+              justify-content:center;background:var(--bg,#111);padding:20px">
+    <form id="formMfa" autocomplete="off" novalidate
+          style="width:100%;max-width:360px;background:var(--card,#1b1b1b);
+                 border:1px solid var(--border,#2f2f2f);border-radius:12px;padding:26px">
+      <h1 id="mfaTitulo" style="margin:0 0 6px;font-size:17px;color:var(--text,#eee)">Verificación en dos pasos</h1>
+      <p id="mfaDescripcion" style="margin:0 0 16px;font-size:12.5px;line-height:1.55;color:var(--text-3,#888)"></p>
+
+      <div id="mfaInscripcion" hidden style="margin:0 0 16px;text-align:center">
+        <img id="mfaQr" alt="Código QR para registrar Contabilidad ATL en la app de autenticación"
+             width="184" height="184" style="background:#fff;border-radius:8px;padding:8px" />
+        <p style="margin:10px 0 4px;font-size:11.5px;color:var(--text-3,#888)">¿No puedes escanear? Escribe esta clave en la app:</p>
+        <code id="mfaSecreto"
+              style="display:block;font-size:12px;letter-spacing:.04em;word-break:break-all;color:var(--text,#eee)"></code>
+      </div>
+
+      <label for="mfaCodigo"
+             style="display:block;font-size:11.5px;color:var(--text-3,#888);margin-bottom:5px">Código de 6 dígitos</label>
+      <input type="text" id="mfaCodigo" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+             style="width:100%;box-sizing:border-box;padding:10px 11px;margin-bottom:16px;font-size:18px;
+                    letter-spacing:.3em;text-align:center;border-radius:7px;border:1px solid var(--border,#333);
+                    background:var(--bg-2,#141414);color:var(--text,#eee)" />
+
+      <button type="submit" id="btnMfa"
+              style="width:100%;padding:10px;font-size:13px;font-weight:600;cursor:pointer;
+                     border-radius:7px;border:none;background:var(--accent,#2563eb);color:#fff">
+        Verificar
+      </button>
+
+      <div id="mfaError" role="alert" hidden
+           style="margin-top:14px;font-size:12px;color:var(--red,#e5484d)"></div>
+
+      <button type="button" id="btnMfaSalir"
+              style="display:block;margin:16px auto 0;padding:4px;font-size:11.5px;cursor:pointer;
+                     background:none;border:none;text-decoration:underline;color:var(--text-3,#888)">
+        Cerrar sesión
+      </button>
     </form>
   </div>
 

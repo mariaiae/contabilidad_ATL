@@ -30,19 +30,16 @@ create table if not exists public.domiciliarios (
   created_at timestamptz not null default now()
 );
 
--- ── Carga inicial: lo que hoy está escrito en app.js ───────────────────────
+-- ── Carga inicial ──────────────────────────────────────────────────────────
 insert into public.socios (id, nombre) values
   ('S001', 'Henry Camilo Taborda'),
   ('S002', 'María Isabel Arias'),
   ('S003', 'Manuel Fernando Toro')
 on conflict (id) do nothing;
 
-insert into public.domiciliarios (id, nombre, documento, placa, telefono, ingreso) values
-  ('D001', 'Manuel Fernando Toro', '98.406.138', 'BZK-14A', '314 678 9012', '2025-03-01'),
-  ('D002', 'Jhon Fredy Cardona',   '98.345.678', 'MSP-22C', '316 234 5678', '2025-05-15'),
-  ('D003', 'Luz Marina Ospina',    '43.567.890', 'KLT-55B', '310 987 6543', '2025-07-01'),
-  ('D004', 'Rodrigo Estrada Gil',  '71.234.567', 'NAP-88D', '312 456 7890', '2024-11-01')
-on conflict (id) do nothing;
+-- Los domiciliarios se registran desde la app (Nómina → Agregar domiciliario).
+-- Este script no trae datos reales: cédulas, placas y teléfonos son datos
+-- personales (Ley 1581 de 2012) y no deben quedar en el repositorio.
 
 -- ── RLS ────────────────────────────────────────────────────────────────────
 -- Provisional, en línea con las tablas anteriores. El archivo 005 cierra el

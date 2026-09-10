@@ -115,11 +115,66 @@ export async function iniciarSesion(email, password) {
   return data.session;
 }
 
-/** Cierra la sesión y limpia el token almacenado. */
-export async function cerrarSesion() {
-  const { error } = await supabase.auth.signOut();
+/**
+ * Cierra la sesión y limpia el token almacenado.
+ * @param {{alcance?: 'global' | 'local'}} opciones  'global' (por defecto) cierra
+ *   la sesión en todos los dispositivos; 'local', solo en este navegador.
+ */
+export async function cerrarSesion({ alcance = 'global' } = {}) {
+  const { error } = await supabase.auth.signOut({ scope: alcance });
   if (error) throw error;
   limpiarPerfil();
+}
+
+// ── Segundo factor (TOTP) ─────────────────────────────────────────────────────
+// El auditor confirma cada inicio de sesión con un código de 6 dígitos de una
+// app de autenticación. La sesión pasa de nivel aal1 (solo contraseña) a aal2
+// (contraseña y código); sql/018 hace que la base exija aal2 al auditor.
+
+/** Nivel de la sesión: { currentLevel, nextLevel }, cada uno 'aal1' o 'aal2'. */
+export async function nivelDeAutenticacion() {
+  const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (error) throw error;
+  return data;
+}
+
+/** Factor TOTP ya verificado del usuario, o null si aún no registra uno. */
+export async function factorTotpVerificado() {
+  const { data, error } = await supabase.auth.mfa.listFactors();
+  if (error) throw error;
+  return (data.all || []).find(f => f.factor_type === 'totp' && f.status === 'verified') || null;
+}
+
+/**
+ * Empieza el registro de un factor TOTP y devuelve el QR y la clave para la app
+ * de autenticación. Antes descarta los intentos que quedaron sin verificar:
+ * Supabase no admite dos factores pendientes con el mismo nombre.
+ */
+export async function iniciarRegistroTotp() {
+  const { data: lista, error: errLista } = await supabase.auth.mfa.listFactors();
+  if (errLista) throw errLista;
+  for (const f of (lista.all || []).filter(f => f.factor_type === 'totp' && f.status !== 'verified')) {
+    const { error } = await supabase.auth.mfa.unenroll({ factorId: f.id });
+    if (error) throw error;
+  }
+
+  const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Contabilidad ATL' });
+  if (error) throw error;
+
+  // El SVG llega como data URI sin codificar; se codifica para que ningún
+  // carácter (#, %) corte la imagen.
+  const svg = String(data.totp.qr_code).replace(/^data:image\/svg\+xml;utf-8,/, '');
+  return {
+    factorId: data.id,
+    qr: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg),
+    secreto: data.totp.secret,
+  };
+}
+
+/** Verifica el código de 6 dígitos y eleva la sesión a aal2. */
+export async function verificarCodigoTotp(factorId, codigo) {
+  const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: codigo });
+  if (error) throw error;
 }
 
 /**
@@ -167,6 +222,10 @@ export function mensajeDeError(err) {
   if (/Email not confirmed/i.test(m)) {
     return 'El usuario existe pero su correo no esta confirmado. Confirmalo en '
          + 'Supabase - Authentication - Users (boton ... - Confirm email).';
+  }
+  if (/invalid totp|mfa_verification_failed/i.test(m + ' ' + codigo)) {
+    return 'Código incorrecto o vencido. Escribe el que muestra ahora la app; si vuelve a fallar, '
+         + 'revisa que la hora del teléfono esté en automático.';
   }
   if (/rate limit|too many/i.test(m)) {
     return 'Demasiados intentos seguidos. Espera un minuto y reintenta.';

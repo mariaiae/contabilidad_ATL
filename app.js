@@ -9,7 +9,7 @@ import { supabase } from './supabase.js';
 import {
   sesionActual, iniciarSesion, cerrarSesion, observarSesion, mensajeDeError, probarConexion,
   cargarPerfil, esAuditor, rolActual, estadoPerfil, limpiarPerfil, ROLES,
-  ROL_PENDIENTE,
+  ROL_PENDIENTE, nivelDeAutenticacion, factorTotpVerificado, iniciarRegistroTotp, verificarCodigoTotp,
 } from './auth.js';
 import { adjuntarSoporte, urlDeSoporte, nombreDeSoporte, validarSoporte } from './soportes.js';
 
@@ -56,8 +56,9 @@ const S = {
 
   // Acumuladores para impuestos
   ivaAcum: { pct19: 0, pct5: 0, excluido: 0 },
-  rteAcum: { compras: 0, honJ: 0, honN: 0, serv: 0, arriendo: 0 },
+  rteAcum: { bienes: 0, honorarios: 0, servicios: 0, arrendamientos: 0, otros: 0 },
   multasAcum: 0,
+  icaBase: 0,
 
   seq: 1,
   liqActual: null,
@@ -69,7 +70,28 @@ const S = {
 const fmt = (v) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(v ?? 0);
 
-const today = () => new Date().toISOString().split('T')[0];
+/** Zona horaria de la empresa: las fechas contables se toman en hora de Colombia. */
+const ZONA_HORARIA = 'America/Bogota';
+
+/**
+ * Fecha de hoy en Colombia (AAAA-MM-DD). toISOString() usa UTC: entre las
+ * 7:00 p. m. y la medianoche devolvía la fecha del día siguiente.
+ */
+const today = () => new Intl.DateTimeFormat('en-CA', {
+  timeZone: ZONA_HORARIA, year: 'numeric', month: '2-digit', day: '2-digit',
+}).format(new Date());
+
+/** Último día del período 'AAAA-MM', como AAAA-MM-DD. */
+const finDeMes = (periodo) => {
+  const [anio, mes] = periodo.split('-').map(Number);
+  return periodo + '-' + String(new Date(anio, mes, 0).getDate()).padStart(2, '0');
+};
+
+/** Nombre de un período 'AAAA-MM': «septiembre de 2026». */
+const nombrePeriodo = (periodo) => {
+  const [anio, mes] = periodo.split('-').map(Number);
+  return new Date(anio, mes - 1, 1).toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+};
 
 const initials = (n) => n.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
 
@@ -229,9 +251,12 @@ function asientoVenta(tipo, cliente, valorBase, ivaPct, desc, fecha) {
         { cuenta: '1305', desc: `Cancelación cartera – ${cliente}`, debito: 0, credito: total },
       ]; break;
     case 'nota_credito':
+      // Reversa la venta completa: el ingreso, el IVA generado y la cartera por
+      // el total. Sin la línea de IVA, el impuesto a declarar quedaba inflado.
       lineas = [
         { cuenta: '4135', desc: `Nota crédito – ${desc}`, debito: valorBase, credito: 0 },
-        { cuenta: '1305', desc: `Reverso cartera – ${cliente}`, debito: 0, credito: valorBase },
+        ...(iva > 0 ? [{ cuenta: '2408', desc: `Reverso IVA ${ivaPct}% – nota crédito`, debito: iva, credito: 0 }] : []),
+        { cuenta: '1305', desc: `Reverso cartera – ${cliente}`, debito: 0, credito: total },
       ]; break;
     case 'anticipo_cliente':
       lineas = [
@@ -317,7 +342,11 @@ function asientoMovDom(tipo, dom, valor, desc, prov, fecha, polizaDesde, polizaH
   return a;
 }
 
-function asientoNomina(liq) {
+/**
+ * Asiento de liquidación de nómina del período 'AAAA-MM'. Se fecha el último
+ * día del período, o hoy si el período aún no termina.
+ */
+function asientoNomina(liq, periodo = today().slice(0, 7)) {
   const comp = nextComp('NOM');
   const d = liq.dom;
   const lineas = [
@@ -339,11 +368,18 @@ function asientoNomina(liq) {
     { cuenta: '2380', desc: `SS empresa – ${d.nombre}`, debito: 0, credito: liq.ssEmpresa },
   ].filter(l => l.debito > 0 || l.credito > 0);
 
+  const fin = finDeMes(periodo);
   const a = buildAsiento({
-    comp, fecha: today(), modulo: 'nomina', chip: 'chip-nomina',
-    nombre: d.nombre, desc: `Nómina período ${new Date().toLocaleDateString('es-CO', { month: 'long', year: 'numeric' })}`, lineas
+    comp, fecha: fin < today() ? fin : today(), modulo: 'nomina', chip: 'chip-nomina',
+    nombre: d.nombre, desc: `Nómina período ${nombrePeriodo(periodo)}`, lineas
   });
   return a;
+}
+
+/** Período elegido para liquidar la nómina ('AAAA-MM'); por defecto, el mes en curso. */
+function periodoNomina() {
+  const valor = document.getElementById('periodoNomina')?.value || '';
+  return /^\d{4}-\d{2}$/.test(valor) ? valor : today().slice(0, 7);
 }
 
 function asientoOperacion(cat, prov, nit, valor, retePct, desc, nroFact, fecha) {
@@ -624,16 +660,19 @@ function updateKpiSocios() {
 }
 
 function updateKpiVentas() {
-  let fac = 0, cob = 0;
+  // Facturado: ingreso de las facturas menos las notas crédito. Cartera: lo
+  // facturado con IVA menos notas crédito y cobros. Un anticipo no es cobro de
+  // cartera: se registra contra el pasivo de anticipos.
+  let fac = 0, cob = 0, cartera = 0;
   S.asientosVentas.forEach(a => {
     const m = metricasDe(a);
-    fac += m.ingreso;                               // 4135 acreditado
-    if (a.modulo === 'venta') cob += m.cobro_banco; // 1110 debitado
+    if (a.tipo === 'factura') { fac += m.ingreso; cartera += m.total_debito; }
+    else if (a.tipo === 'nota_credito') { fac -= a.valor; cartera -= m.total_credito; }
+    else if (a.tipo === 'cobro') { cob += m.cobro_banco; cartera -= m.cobro_banco; }
   });
-  const cartera = Math.max(0, fac - cob);
   document.getElementById('kpi-facturado').textContent = fmt(fac);
   document.getElementById('kpi-cobrado').textContent = fmt(cob);
-  document.getElementById('kpi-cartera').textContent = fmt(cartera);
+  document.getElementById('kpi-cartera').textContent = fmt(Math.max(0, cartera));
   const clientes = new Set(S.asientosVentas.map(a => a.nombre)).size;
   document.getElementById('kpi-clientes-count').textContent = clientes;
 }
@@ -654,37 +693,37 @@ function updateKpiOp() {
 }
 
 function updateImpuestos() {
-  document.getElementById('iva19').textContent = fmt(S.ivaAcum.pct19);
-  document.getElementById('iva5').textContent = fmt(S.ivaAcum.pct5);
-  document.getElementById('ivaExcluido').textContent = fmt(S.ivaAcum.excluido);
-  document.getElementById('ivaTotal').textContent = fmt(S.ivaAcum.pct19 + S.ivaAcum.pct5);
+  const poner = (id, texto) => { const el = document.getElementById(id); if (el) el.textContent = texto; };
+  const periodos = periodosTributarios();
 
-  document.getElementById('rte-compras').textContent = fmt(S.rteAcum.compras);
-  document.getElementById('rte-hon-j').textContent = fmt(S.rteAcum.honJ);
-  document.getElementById('rte-hon-n').textContent = fmt(S.rteAcum.honN);
-  document.getElementById('rte-serv').textContent = fmt(S.rteAcum.serv);
-  const elArr = document.getElementById('rte-arriendo');
-  if (elArr) elArr.textContent = fmt(S.rteAcum.arriendo);
-  const rteTotal = Object.values(S.rteAcum).reduce((a, b) => a + b, 0);
-  document.getElementById('rte-total').textContent = fmt(rteTotal);
+  poner('ivaPeriodo', periodos.iva.etiqueta);
+  poner('iva19', fmt(S.ivaAcum.pct19));
+  poner('iva5', fmt(S.ivaAcum.pct5));
+  poner('ivaExcluido', fmt(S.ivaAcum.excluido));
+  poner('ivaTotal', fmt(S.ivaAcum.pct19 + S.ivaAcum.pct5));
 
-  document.getElementById('nd-multas').textContent = fmt(S.multasAcum);
-  document.getElementById('nd-sanciones').textContent = '$0';
-  document.getElementById('nd-total').textContent = fmt(S.multasAcum);
+  poner('taxPeriodo', periodos.retencion.etiqueta);
+  poner('rte-bienes', fmt(S.rteAcum.bienes));
+  poner('rte-honorarios', fmt(S.rteAcum.honorarios));
+  poner('rte-servicios', fmt(S.rteAcum.servicios));
+  poner('rte-arrendamientos', fmt(S.rteAcum.arrendamientos));
+  poner('rte-otros', fmt(S.rteAcum.otros));
+  poner('rte-total', fmt(Object.values(S.rteAcum).reduce((a, b) => a + b, 0)));
 
-  // ICA base = ingresos brutos
-  let ingBrutos = 0;
-  S.asientosVentas.forEach(a => { ingBrutos += metricasDe(a).ingreso; });
-  document.getElementById('icaBase').textContent = fmt(ingBrutos);
-  document.getElementById('badge-nomina').textContent = String(S.domiciliarios.length);
+  poner('nd-multas', fmt(S.multasAcum));
+  poner('nd-sanciones', '$0');
+  poner('nd-total', fmt(S.multasAcum));
+
+  poner('icaPeriodo', periodos.anual.etiqueta);
+  poner('icaBase', fmt(S.icaBase));
+  poner('badge-nomina', String(S.domiciliarios.length));
   calcICA();
 }
 
 function calcICA() {
-  let ingBrutos = 0;
-  S.asientosVentas.forEach(a => { ingBrutos += metricasDe(a).ingreso; });
   const tarifa = parseFloat(document.getElementById('icaTarifa')?.value) || 6.9;
-  document.getElementById('icaTotal').textContent = fmt(Math.round(ingBrutos * tarifa / 1000));
+  const total = document.getElementById('icaTotal');
+  if (total) total.textContent = fmt(Math.round((S.icaBase || 0) * tarifa / 1000));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -782,12 +821,13 @@ function exportarCSV() {
   ];
   if (!all.length) { alert('No hay movimientos para exportar.'); return; }
   const rows = all.flatMap(a => a.lineas.map(l => [
-    a.comp, a.fecha, a.modulo, `"${a.nombre}"`, `"${a.desc}"`,
-    l.cuenta, `"${nombreCuenta(l.cuenta)}"`,
-    l.debito || 0, l.credito || 0
+    a.comp, a.fecha, a.modulo, a.nombre, a.desc,
+    l.cuenta, nombreCuenta(l.cuenta), l.desc,
+    l.debito || 0, l.credito || 0,
   ]));
-  const csv = [['Comprobante', 'Fecha', 'Módulo', 'Tercero', 'Descripción', 'Cuenta', 'Nombre cuenta', 'Débito', 'Crédito'].join(','),
-  ...rows.map(r => r.join(','))].join('\n');
+  const encabezado = ['Comprobante', 'Fecha', 'Módulo', 'Tercero', 'Descripción', 'Cuenta',
+                      'Nombre cuenta', 'Detalle línea', 'Débito', 'Crédito'];
+  const csv = [encabezado, ...rows].map(fila => fila.map(celdaCsv).join(',')).join('\n');
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -847,6 +887,18 @@ const CHIP_POR_MODULO = {
 /** Escapa texto antes de inyectarlo como HTML (los datos vienen de la BD). */
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/**
+ * Celda de CSV. Excel ejecuta como fórmula un texto que empieza con = + - @
+ * (o con tabulador o retorno): se antepone un apóstrofo para que quede como
+ * texto. Los números se exportan como números.
+ */
+const celdaCsv = (v) => {
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  let texto = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(texto)) texto = "'" + texto;
+  return '"' + texto.replace(/"/g, '""') + '"';
+};
 
 /** Suma un lado ('debito' | 'credito') de todas las líneas de una cuenta. */
 const montoCuenta = (a, cuenta, lado) =>
@@ -979,6 +1031,9 @@ function mensajeDeErrorBD(err) {
 
   // 23514 - validacion. Los mensajes propios (partida doble, cuentas de
   // retencion) explican el problema; el generico de una CHECK no.
+  if (codigo === '23514' && /asiento_detalles_montos_validos/.test(mensaje)) {
+    return 'Cada línea del asiento debe llevar un valor mayor que cero en débito o en crédito, no en ambos.';
+  }
   if (codigo === '23514') {
     return /violates check constraint/i.test(mensaje)
       ? 'Un valor no cumple una regla de la base de datos. ' + detalle
@@ -1256,9 +1311,11 @@ async function renderVentas() {
     const a = asientoDesdeDB(row);
     // IVA y total salen de las líneas: la partida doble es la fuente de verdad.
     const { iva, total_debito: total } = metricasDe(a);
-    const estado = row.tipo === 'cobro'
-      ? '<span class="chip chip-ok">Pagado</span>'
-      : '<span class="chip chip-pendiente">Pendiente</span>';
+    const estado = {
+      cobro: '<span class="chip chip-ok">Pagado</span>',
+      nota_credito: '<span class="chip chip-ok">Aplicada</span>',
+      anticipo_cliente: '<span class="chip chip-pendiente">Anticipo</span>',
+    }[row.tipo] || '<span class="chip chip-pendiente">Pendiente</span>';
     return `
       <tr>
         <td>${fmtDate(row.fecha)}</td>
@@ -1797,6 +1854,8 @@ async function recargarGestionOperativa() {
   updateKpiPagos();
   previsualizarRetencion();
   actualizarBadges();
+  recalcularDerivados();
+  updateImpuestos();
   if (saldos.error) console.warn('[Pagos] Sin saldos por pagar: la columna Saldo y el formulario de pago quedan vacios.');
 }
 
@@ -1846,31 +1905,80 @@ function conceptoRetencion(categoria, tasa) {
  *
  * Es la UNICA fuente de estas cifras: ningun generador de asientos las toca.
  */
+/** Casillero del panel para cada concepto de retención de Operación. */
+const CONCEPTO_RETENCION_PANEL = {
+  compras: 'bienes', honJ: 'honorarios', honN: 'honorarios', serv: 'servicios', arriendo: 'arrendamientos',
+};
+
+/**
+ * Períodos de cada impuesto en hora de Colombia: retención en la fuente
+ * mensual, IVA bimestral e ICA anual. El panel solo suma lo de cada período.
+ */
+function periodosTributarios() {
+  const hoy = today();
+  const anio = Number(hoy.slice(0, 4));
+  const mes = Number(hoy.slice(5, 7));
+  const dos = (n) => String(n).padStart(2, '0');
+  const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  const inicioBimestre = mes % 2 === 0 ? mes - 1 : mes;
+  return {
+    retencion: {
+      desde: `${anio}-${dos(mes)}-01`, hasta: finDeMes(`${anio}-${dos(mes)}`),
+      etiqueta: `${MESES[mes - 1]} ${anio}`,
+    },
+    iva: {
+      desde: `${anio}-${dos(inicioBimestre)}-01`, hasta: finDeMes(`${anio}-${dos(inicioBimestre + 1)}`),
+      etiqueta: `${MESES[inicioBimestre - 1]}–${MESES[inicioBimestre]} ${anio}`,
+    },
+    anual: { desde: `${anio}-01-01`, hasta: `${anio}-12-31`, etiqueta: `Año ${anio}` },
+  };
+}
+
+const enPeriodo = (fecha, periodo) => !!fecha && fecha >= periodo.desde && fecha <= periodo.hasta;
+
 function recalcularDerivados() {
+  const periodos = periodosTributarios();
   S.ivaAcum = { pct19: 0, pct5: 0, excluido: 0 };
-  S.rteAcum = { compras: 0, honJ: 0, honN: 0, serv: 0, arriendo: 0 };
+  S.rteAcum = { bienes: 0, honorarios: 0, servicios: 0, arrendamientos: 0, otros: 0 };
+  S.icaBase = 0;
   S.multasAcum = 0;
   S.domiciliarios.forEach(d => { d.cxc = 0; });
 
   S.asientosVentas.forEach(a => {
-    if (a.tipo !== 'factura') return;
-    const iva = metricasDe(a).iva;
-    if (a.tasa === 19) S.ivaAcum.pct19 += iva;
-    else if (a.tasa === 5) S.ivaAcum.pct5 += iva;
-    else S.ivaAcum.excluido += a.valor;
+    // IVA del bimestre: el de las facturas menos el que reversan las notas crédito.
+    if (enPeriodo(a.fecha, periodos.iva) && (a.tipo === 'factura' || a.tipo === 'nota_credito')) {
+      const signo = a.tipo === 'factura' ? 1 : -1;
+      const iva = a.tipo === 'factura' ? metricasDe(a).iva : montoCuenta(a, '2408', 'debito');
+      if (a.tasa === 19) S.ivaAcum.pct19 += signo * iva;
+      else if (a.tasa === 5) S.ivaAcum.pct5 += signo * iva;
+      else S.ivaAcum.excluido += signo * a.valor;
+    }
+    // Base de ICA del año: ingresos netos de notas crédito.
+    if (enPeriodo(a.fecha, periodos.anual)) {
+      if (a.tipo === 'factura') S.icaBase += metricasDe(a).ingreso;
+      else if (a.tipo === 'nota_credito') S.icaBase -= a.valor;
+    }
   });
 
-  S.asientosOp.forEach(a => {
+  // Retención del mes: todo lo acreditado a 2370, venga del módulo que venga.
+  // El concepto sale de la categoría del gasto (Operación) o del concepto
+  // tributario de la compra (Gestión Operativa).
+  const conceptoDeCompra = new Map(S.documentos.map(d => [d.asiento_id, d.concepto_tributario]));
+  [
+    ...S.asientosSocios, ...S.asientosVentas, ...S.asientosNomina,
+    ...S.asientosOp, ...S.asientosCompras, ...S.asientosPagos,
+  ].forEach(a => {
+    if (!enPeriodo(a.fecha, periodos.retencion)) return;
     const rete = metricasDe(a).retencion;
     if (!rete) return;
-    // `a.tipo` guarda la categoria del gasto (catGasto).
-    const concepto = conceptoRetencion(a.tipo, a.tasa);
-    if (concepto && concepto in S.rteAcum) S.rteAcum[concepto] += rete;
-    else console.warn('[retenciones] Gasto sin concepto asignable:', a.comp, a.tipo, a.tasa);
+    let concepto = 'otros';
+    if (a.modulo === 'gasto') concepto = CONCEPTO_RETENCION_PANEL[conceptoRetencion(a.tipo, a.tasa)] || 'otros';
+    else if (a.modulo === 'compra') concepto = conceptoDeCompra.get(a.id) || 'otros';
+    S.rteAcum[concepto in S.rteAcum ? concepto : 'otros'] += rete;
   });
 
   S.asientosNomina.forEach(a => {
-    if (a.tipo === 'multa') S.multasAcum += a.valor;
+    if (a.tipo === 'multa' && enPeriodo(a.fecha, periodos.anual)) S.multasAcum += a.valor;
     const dom = S.domiciliarios.find(d => d.nombre === a.nombre);
     if (dom) dom.cxc += metricasDe(a).cxc_neto;
   });
@@ -1912,13 +2020,22 @@ async function cargarPlanCuentas() {
   data.forEach(c => CUENTAS.set(c.codigo, c.nombre));
 }
 
-/** Carga el listado de socios desde la BD. */
+/**
+ * Lista de un maestro sin datos personales, para roles distintos del auditor
+ * (sql/017). Mientras esa función no exista, se leen solo las columnas no
+ * sensibles de la tabla.
+ */
+async function listaSinDatosPersonales(funcion, tabla, columnas) {
+  const res = await supabase.rpc(funcion);
+  if (!res.error || res.error.code !== 'PGRST202') return res;
+  return supabase.from(tabla).select(columnas).eq('activo', true).order('id');
+}
+
+/** Carga el listado de socios. El documento solo lo recibe el auditor. */
 async function cargarSocios() {
-  const { data, error } = await supabase
-    .from('socios')
-    .select('id, nombre, documento')
-    .eq('activo', true)
-    .order('id');
+  const { data, error } = esAuditor()
+    ? await supabase.from('socios').select('id, nombre, documento').eq('activo', true).order('id')
+    : await listaSinDatosPersonales('socios_lista', 'socios', 'id, nombre');
 
   if (error) { console.error('[Supabase] No se pudo cargar socios:', error); return; }
   S.socios = data;
@@ -1926,11 +2043,11 @@ async function cargarSocios() {
 
 /** Carga el listado de domiciliarios. `cxc` arranca en 0: lo llena recalcularDerivados(). */
 async function cargarDomiciliarios() {
-  const { data, error } = await supabase
-    .from('domiciliarios')
-    .select('id, nombre, documento, placa, telefono, ingreso')
-    .eq('activo', true)
-    .order('id');
+  // Cédula y teléfono solo para el auditor (sql/017).
+  const { data, error } = esAuditor()
+    ? await supabase.from('domiciliarios').select('id, nombre, documento, placa, telefono, ingreso')
+        .eq('activo', true).order('id')
+    : await listaSinDatosPersonales('domiciliarios_lista', 'domiciliarios', 'id, nombre, placa, ingreso');
 
   if (error) { console.error('[Supabase] No se pudo cargar domiciliarios:', error); return; }
   S.domiciliarios = data.map(d => ({
@@ -2113,13 +2230,8 @@ function mostrarAlertaFiscalSocio(tipo, soporte) {
 
 /** Primer y ultimo dia del mes en curso, en formato YYYY-MM-DD. */
 function rangoMesActual() {
-  const hoy = new Date();
-  const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-  const ultimo = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
-  const iso = (d) => d.getFullYear() + '-'
-    + String(d.getMonth() + 1).padStart(2, '0') + '-'
-    + String(d.getDate()).padStart(2, '0');
-  return { desde: iso(primero), hasta: iso(ultimo) };
+  const periodo = today().slice(0, 7);
+  return { desde: periodo + '-01', hasta: finDeMes(periodo) };
 }
 
 /**
@@ -2282,7 +2394,6 @@ async function exportarDiario() {
   if (error) { alert('No se pudo exportar: ' + error.message); return; }
   if (!filas.length) { alert('No hay asientos en el período.'); return; }
 
-  const escaparCsv = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   const encabezado = ['Fecha', 'Comprobante', 'Modulo', 'Tercero', 'Concepto',
                       'Cuenta', 'Nombre cuenta', 'Detalle linea', 'Debito', 'Credito'];
 
@@ -2295,12 +2406,12 @@ async function exportarDiario() {
       lineas.push([
         row.fecha, a.comp, row.modulo, a.nombre, a.desc,
         l.cuenta, nombreCuenta(l.cuenta), l.desc, l.debito || 0, l.credito || 0,
-      ].map(escaparCsv).join(','));
+      ].map(celdaCsv).join(','));
     }
   }
-  lineas.push(['', '', '', '', '', '', '', 'TOTALES', totD, totC].map(escaparCsv).join(','));
+  lineas.push(['', '', '', '', '', '', '', 'TOTALES', totD, totC].map(celdaCsv).join(','));
 
-  const csv = [encabezado.map(escaparCsv).join(','), ...lineas].join('\n');
+  const csv = [encabezado.map(celdaCsv).join(','), ...lineas].join('\n');
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const enlace = document.createElement('a');
@@ -2405,6 +2516,150 @@ function avisoGuardado(comprobante) {
   avisoGuardado.temporizador = setTimeout(() => { toast.style.display = 'none'; }, 3500);
 }
 
+// ── Cierre por inactividad ───────────────────────────────────────────────────
+// Una sesión abierta en un equipo desatendido deja la información contable a
+// la vista de cualquiera. Tras MINUTOS_INACTIVIDAD sin usar la app se cierra la
+// sesión de este navegador y se recarga la página, para que no queden datos en
+// pantalla detrás del acceso.
+//
+// La última actividad se guarda en localStorage: todas las pestañas comparten
+// el mismo reloj, así que trabajar en una mantiene abiertas las demás. También
+// cubre volver al día siguiente con la sesión recordada.
+const MINUTOS_INACTIVIDAD = 30;
+const CLAVE_ACTIVIDAD = 'atl-ultima-actividad';
+const CLAVE_AVISO_ACCESO = 'atl-aviso-acceso';
+const EVENTOS_ACTIVIDAD = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'scroll'];
+let vigilanciaInactividad = null;
+let ultimaEscrituraActividad = 0;
+
+// localStorage puede no estar disponible (modo privado estricto): nunca lanza.
+function leerLocal(clave) {
+  try { return localStorage.getItem(clave); } catch { return null; }
+}
+function escribirLocal(clave, valor) {
+  try {
+    if (valor === null) localStorage.removeItem(clave);
+    else localStorage.setItem(clave, valor);
+  } catch { /* sin almacenamiento: el reloj vive solo en esta pestaña */ }
+}
+
+/** Anota que hubo actividad. Escribe como máximo cada 15 s. */
+function registrarActividad(forzar = false) {
+  const ahora = Date.now();
+  if (!forzar && ahora - ultimaEscrituraActividad < 15000) return;
+  ultimaEscrituraActividad = ahora;
+  escribirLocal(CLAVE_ACTIVIDAD, String(ahora));
+}
+const alActuar = () => registrarActividad();
+
+/** true si la última actividad anotada supera el límite. */
+function inactividadVencida() {
+  const ultima = Number(leerLocal(CLAVE_ACTIVIDAD));
+  return ultima > 0 && Date.now() - ultima >= MINUTOS_INACTIVIDAD * 60000;
+}
+
+function revisarInactividad() {
+  if (inactividadVencida()) cerrarPorInactividad();
+}
+
+function vigilarInactividad() {
+  if (vigilanciaInactividad) return;
+  if (!leerLocal(CLAVE_ACTIVIDAD)) registrarActividad(true);
+  EVENTOS_ACTIVIDAD.forEach(evento => document.addEventListener(evento, alActuar, { passive: true, capture: true }));
+  // Al volver a la pestaña se revisa enseguida, sin esperar al intervalo.
+  document.addEventListener('visibilitychange', revisarInactividad);
+  vigilanciaInactividad = setInterval(revisarInactividad, 30000);
+}
+
+function detenerVigilancia() {
+  if (!vigilanciaInactividad) return;
+  clearInterval(vigilanciaInactividad);
+  vigilanciaInactividad = null;
+  EVENTOS_ACTIVIDAD.forEach(evento => document.removeEventListener(evento, alActuar, { capture: true }));
+  document.removeEventListener('visibilitychange', revisarInactividad);
+}
+
+/** Cierra la sesión de este navegador y recarga la página con un aviso. */
+async function cerrarPorInactividad() {
+  detenerVigilancia();
+  escribirLocal(CLAVE_ACTIVIDAD, null);
+  try {
+    sessionStorage.setItem(CLAVE_AVISO_ACCESO,
+      `Tu sesión se cerró tras ${MINUTOS_INACTIVIDAD} minutos sin actividad. Vuelve a iniciar sesión.`);
+  } catch { /* sin aviso: la pantalla de acceso basta */ }
+  try {
+    await cerrarSesion({ alcance: 'local' });   // no cierra otros dispositivos
+  } catch (err) {
+    console.error('[Auth] No se pudo cerrar la sesión inactiva:', err);
+  }
+  location.reload();
+}
+
+// ── Segundo factor del auditor ───────────────────────────────────────────────
+let mfaFactorId = null;
+// Una sola preparación a la vez: al abrir la app, el arranque y los eventos de
+// sesión llegan casi juntos, y cada registro nuevo invalidaría el QR anterior
+// mientras la persona lo escanea.
+let preparacionMfa = null;
+
+/**
+ * Muestra la pantalla del segundo factor. Si el auditor ya tiene un factor
+ * verificado pide el código; si no, inicia el registro y muestra el QR.
+ */
+function mostrarPantallaMfa(nivel) {
+  if (preparacionMfa) return preparacionMfa;
+  preparacionMfa = (async () => {
+    const el = (id) => document.getElementById(id);
+    const pantalla = el('pantallaMfa');
+    if (!pantalla) return;
+    pantalla.style.display = 'flex';
+    pantalla.hidden = false;
+    el('mfaError').hidden = true;
+    el('mfaCodigo').value = '';
+    el('mfaInscripcion').hidden = true;
+    el('btnMfa').disabled = true;
+    el('mfaDescripcion').textContent = 'Preparando la verificación…';
+
+    try {
+      const factor = nivel?.nextLevel === 'aal2' ? await factorTotpVerificado() : null;
+      if (factor) {
+        mfaFactorId = factor.id;
+        el('mfaTitulo').textContent = 'Verificación en dos pasos';
+        el('mfaDescripcion').textContent = 'Escribe el código de 6 dígitos que muestra tu app de autenticación.';
+      } else {
+        const { factorId, qr, secreto } = await iniciarRegistroTotp();
+        mfaFactorId = factorId;
+        el('mfaTitulo').textContent = 'Activa la verificación en dos pasos';
+        el('mfaDescripcion').textContent = 'Tu perfil de auditor la exige. Escanea este código con una app de '
+          + 'autenticación (Google Authenticator, Microsoft Authenticator o 1Password) y escribe el código '
+          + 'de 6 dígitos que genera.';
+        el('mfaQr').src = qr;
+        el('mfaSecreto').textContent = secreto;
+        el('mfaInscripcion').hidden = false;
+      }
+      el('btnMfa').disabled = false;
+      el('mfaCodigo').focus();
+    } catch (err) {
+      console.error('[Auth] No se pudo preparar el segundo factor:', err);
+      el('mfaDescripcion').textContent = 'No se pudo preparar la verificación. Cierra sesión y vuelve a intentarlo.';
+      el('mfaError').textContent = mensajeDeError(err);
+      el('mfaError').hidden = false;
+      preparacionMfa = null;   // un próximo intento vuelve a prepararla
+    }
+  })();
+  return preparacionMfa;
+}
+
+function ocultarPantallaMfa() {
+  const pantalla = document.getElementById('pantallaMfa');
+  if (pantalla) { pantalla.style.display = 'none'; pantalla.hidden = true; }
+  document.getElementById('mfaQr')?.removeAttribute('src');
+  const secreto = document.getElementById('mfaSecreto');
+  if (secreto) secreto.textContent = '';
+  mfaFactorId = null;
+  preparacionMfa = null;
+}
+
 let sesionMontada = false;
 // Rol con el que se pintaron las tablas por ultima vez. Decide si un evento
 // de sesion debe volver a pintar (cambio real de rol) o puede ignorarse.
@@ -2429,9 +2684,19 @@ async function aplicarSesion(session) {
   if (!session) {
     sesionMontada = false;
     rolPintado = null;
+    detenerVigilancia();
+    escribirLocal(CLAVE_ACTIVIDAD, null);
+    ocultarPantallaMfa();
     limpiarPerfil();
     aplicarPermisos();
     mostrarLogin(true);
+    return;
+  }
+
+  // Sesión recordada de una visita que superó el límite de inactividad: se
+  // cierra antes de cargar ningún dato.
+  if (!sesionMontada && inactividadVencida()) {
+    await cerrarPorInactividad();
     return;
   }
 
@@ -2467,6 +2732,25 @@ async function aplicarSesion(session) {
     return;
   }
 
+  // Auditor: segundo factor obligatorio. Con solo la contraseña (aal1) la app
+  // no se monta y, con sql/018, la base tampoco le entrega datos.
+  if (rolActual() === ROLES.AUDITOR) {
+    let nivel = null;
+    try {
+      nivel = await nivelDeAutenticacion();
+    } catch (err) {
+      console.error('[Auth] No se pudo leer el nivel de autenticación:', err);
+    }
+    if (nivel?.currentLevel !== 'aal2') {
+      sesionMontada = false;
+      rolPintado = null;
+      mostrarLogin(false);
+      await mostrarPantallaMfa(nivel);
+      return;
+    }
+  }
+  ocultarPantallaMfa();
+
   aplicarPermisos();
   mostrarLogin(false);
 
@@ -2488,6 +2772,7 @@ async function aplicarSesion(session) {
   }
   sesionMontada = true;
   rolPintado = rolActual();   // sincrono, antes del primer await
+  vigilarInactividad();
 
   try {
     await syncSeqComprobante();
@@ -2508,6 +2793,13 @@ function montarControlesSesion() {
   const form = document.getElementById('formLogin');
   const cajaError = document.getElementById('loginError');
 
+  // Aviso dejado antes de recargar (por ejemplo, el cierre por inactividad).
+  try {
+    const aviso = sessionStorage.getItem(CLAVE_AVISO_ACCESO);
+    sessionStorage.removeItem(CLAVE_AVISO_ACCESO);
+    if (aviso && cajaError) { cajaError.textContent = aviso; cajaError.hidden = false; }
+  } catch { /* sin sessionStorage no hay aviso */ }
+
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('btnLogin');
@@ -2516,6 +2808,9 @@ function montarControlesSesion() {
 
     if (cajaError) cajaError.hidden = true;
     if (btn) { btn.disabled = true; btn.textContent = 'Entrando...'; }
+
+    // Una sesión nueva empieza con el reloj de inactividad en cero.
+    registrarActividad(true);
 
     try {
       await iniciarSesion(email, password);
@@ -2535,6 +2830,48 @@ function montarControlesSesion() {
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = 'Entrar'; }
     }
+  });
+
+  // Segundo factor del auditor: verificar el código de 6 dígitos.
+  document.getElementById('formMfa')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btnMfa');
+    const caja = document.getElementById('mfaError');
+    const campo = document.getElementById('mfaCodigo');
+    const codigo = campo.value.replace(/\D/g, '');
+    caja.hidden = true;
+    if (!mfaFactorId) return;
+    if (codigo.length !== 6) {
+      caja.textContent = 'Escribe los 6 dígitos del código.';
+      caja.hidden = false;
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Verificando...';
+    try {
+      await verificarCodigoTotp(mfaFactorId, codigo);
+      registrarActividad(true);
+      ocultarPantallaMfa();
+      await aplicarSesion(await sesionActual());   // la sesión ya es aal2: se monta la app
+    } catch (err) {
+      console.error('[Auth] Código del segundo factor rechazado:', err);
+      caja.textContent = mensajeDeError(err);
+      caja.hidden = false;
+      campo.select();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Verificar';
+    }
+  });
+
+  document.getElementById('btnMfaSalir')?.addEventListener('click', async () => {
+    try {
+      await cerrarSesion({ alcance: 'local' });
+    } catch (err) {
+      console.error('[Auth] No se pudo cerrar sesión:', err);
+    }
+    location.reload();
   });
 
   // Diagnostico de conectividad, en pantalla y sin consola.
@@ -2647,11 +2984,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Período en sidebar
   const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-  const now = new Date();
+  const [anioActual, mesActual] = today().split('-').map(Number);
   const pEl = document.getElementById('periodoActual');
-  if (pEl) pEl.textContent = `${meses[now.getMonth()]} ${now.getFullYear()}`;
-  const tEl = document.getElementById('taxPeriodo');
-  if (tEl) tEl.textContent = `${meses[now.getMonth()]} ${now.getFullYear()}`;
+  if (pEl) pEl.textContent = `${meses[mesActual - 1]} ${anioActual}`;
+  const campoPeriodo = document.getElementById('periodoNomina');
+  if (campoPeriodo) {
+    campoPeriodo.value = today().slice(0, 7);
+    campoPeriodo.max = today().slice(0, 7);   // no se liquidan meses futuros
+  }
 
 
   // Nada se carga sin sesion. observarSesion() dispara aplicarSesion() tanto
@@ -2875,7 +3215,7 @@ document.addEventListener('DOMContentLoaded', () => {
       for (const dom of S.domiciliarios) {
         const dias = parseInt(document.querySelector('.dias-dom-' + dom.id)?.value ?? S.params.diasPeriodo, 10);
         const liq = calcNomina(dom, dias);
-        const a = asientoNomina(liq);
+        const a = asientoNomina(liq, periodoNomina());
         try {
           await guardarAsientoDB(a, { modulo: 'nomina', tipo: 'liquidacion', valor: a.totD });
         } catch (err) {
@@ -2947,7 +3287,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('liqConfirm')?.addEventListener('click', async () => {
     if (S.liqActual) {
       const btn = document.getElementById('liqConfirm');
-      const a = asientoNomina(S.liqActual);
+      const a = asientoNomina(S.liqActual, periodoNomina());
       const guardado = await guardarConFeedback(btn, a, {
         modulo: 'nomina', tipo: 'liquidacion', valor: a.totD,
       });
