@@ -387,12 +387,11 @@
             <div class="field-row">
               <div class="field-group">
                 <label class="field-label">Valor Base ($)</label>
-                <input type="number" class="field-input" id="valorVenta" placeholder="0" min="0"
-                  oninput="calcularIva()" />
+                <input type="number" class="field-input" id="valorVenta" placeholder="0" min="0" />
               </div>
               <div class="field-group">
                 <label class="field-label">IVA (%)</label>
-                <select class="field-select" id="ivaVenta" onchange="calcularIva()">
+                <select class="field-select" id="ivaVenta">
                   <option value="0">0% – Excluido/Exento</option>
                   <option value="19">19% – Tarifa general</option>
                   <option value="5">5% – Tarifa diferencial</option>
@@ -497,24 +496,22 @@
         <div class="card-body params-body">
           <div class="param-item">
             <label class="field-label">SMLV 2026</label>
-            <input type="number" class="field-input mono" id="smlv" value="1423500" oninput="refreshNomina()" />
+            <input type="number" class="field-input mono" id="smlv" value="1423500" />
           </div>
           <div class="param-item">
             <label class="field-label">Aux. Transporte</label>
-            <input type="number" class="field-input mono" id="auxTransporte" value="200000" oninput="refreshNomina()" />
+            <input type="number" class="field-input mono" id="auxTransporte" value="200000" />
           </div>
           <div class="param-item">
             <label class="field-label">
               Aux. Rodamiento
               <span class="label-note">Art. 128 CST</span>
             </label>
-            <input type="number" class="field-input mono accent-border" id="auxRodamiento" value="300000"
-              oninput="refreshNomina()" />
+            <input type="number" class="field-input mono accent-border" id="auxRodamiento" value="300000" />
           </div>
           <div class="param-item">
             <label class="field-label">Días del período</label>
-            <input type="number" class="field-input mono" id="diasPeriodo" value="30" min="1" max="30"
-              oninput="refreshNomina()" />
+            <input type="number" class="field-input mono" id="diasPeriodo" value="30" min="1" max="30" />
           </div>
         </div>
       </div>
@@ -714,11 +711,11 @@
             <div class="field-row">
               <div class="field-group">
                 <label class="field-label">Valor ($)</label>
-                <input type="number" class="field-input" id="valorOp" placeholder="0" oninput="calcReteFuente()" />
+                <input type="number" class="field-input" id="valorOp" placeholder="0" />
               </div>
               <div class="field-group">
                 <label class="field-label">Retención en la Fuente</label>
-                <select class="field-select" id="reteFuente" onchange="calcReteFuente()">
+                <select class="field-select" id="reteFuente">
                   <option value="0">No aplica</option>
                   <option value="3.5">3.5% – Compras</option>
                   <option value="4">4% – Honorarios persona jurídica</option>
@@ -1300,8 +1297,7 @@
             <div class="tax-row">
               <span class="tax-label">Tarifa aplicable (milésimas)</span>
               <span class="tax-value mono">
-                <input type="number" class="tax-input" id="icaTarifa" value="6.9" step="0.1" placeholder="6.9"
-                  oninput="calcICA()" />
+                <input type="number" class="tax-input" id="icaTarifa" value="6.9" step="0.1" placeholder="6.9" />
                 <span style="color:var(--text-3)">‰</span>
               </span>
             </div>

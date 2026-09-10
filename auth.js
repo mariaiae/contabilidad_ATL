@@ -15,9 +15,16 @@ import { supabase, CONFIG } from './supabase.js';
 //
 // Regla: ante cualquier duda (tabla inexistente, error de red, usuario sin
 // perfil, rol desconocido) se asume `comercial`, el de MENOR privilegio.
-// Nunca se concede `auditor` por defecto.
+// Nunca se concede `auditor` por defecto. Aun asi la base decide: sus
+// politicas leen el rol de `profiles`, no el que asuma la interfaz.
 
 export const ROLES = Object.freeze({ COMERCIAL: 'comercial', AUDITOR: 'auditor' });
+
+/**
+ * Cuenta registrada que un auditor aun no aprueba (sql/016). La base no le
+ * entrega ningun dato; la app ni siquiera se monta para ella.
+ */
+export const ROL_PENDIENTE = 'pendiente';
 
 let perfil = { userId: null, role: null, origen: 'sin-cargar', detalle: null };
 let consultaEnCurso = null;   // { userId, promesa } para no duplicar la consulta
@@ -51,6 +58,8 @@ export async function cargarPerfil(userId, { forzar = false } = {}) {
     } else if (!data) {
       perfil = { userId, role: ROLES.COMERCIAL, origen: 'sin-perfil',
                  detalle: 'tu usuario no tiene un perfil asignado.' };
+    } else if (data.role === ROL_PENDIENTE) {
+      perfil = { userId, role: ROL_PENDIENTE, origen: 'bd', detalle: null };
     } else if (!Object.values(ROLES).includes(data.role)) {
       perfil = { userId, role: ROLES.COMERCIAL, origen: 'rol-invalido',
                  detalle: 'rol no reconocido (' + data.role + ').' };

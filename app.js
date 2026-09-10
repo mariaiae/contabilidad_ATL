@@ -9,6 +9,7 @@ import { supabase } from './supabase.js';
 import {
   sesionActual, iniciarSesion, cerrarSesion, observarSesion, mensajeDeError, probarConexion,
   cargarPerfil, esAuditor, rolActual, estadoPerfil, limpiarPerfil, ROLES,
+  ROL_PENDIENTE,
 } from './auth.js';
 import { adjuntarSoporte, urlDeSoporte, nombreDeSoporte, validarSoporte } from './soportes.js';
 
@@ -392,9 +393,9 @@ function htmlAsiento(a) {
     return `
       <tr>
         <td class="cuenta-col${isCredito ? ' indented' : ''}">
-          <strong>${nombreDeLaCuenta}</strong> <span style="color: var(--text-muted); font-size: 0.85em;">Cód. ${l.cuenta}</span>
+          <strong>${esc(nombreDeLaCuenta)}</strong> <span style="color: var(--text-muted); font-size: 0.85em;">Cód. ${esc(l.cuenta)}</span>
         </td>
-        <td class="desc-col${isCredito ? ' indented' : ''}">${l.desc}</td>
+        <td class="desc-col${isCredito ? ' indented' : ''}">${esc(l.desc)}</td>
         <td class="text-right mono-cell">${l.debito > 0 ? fmt(l.debito) : '<span style="color:var(--text-3)">—</span>'}</td>
         <td class="text-right mono-cell">${l.credito > 0 ? fmt(l.credito) : '<span style="color:var(--text-3)">—</span>'}</td>
       </tr>`;
@@ -458,7 +459,7 @@ function renderNomina() {
 
     provCards += `
       <div class="provision-card">
-        <div class="prov-name">${dom.nombre}</div>
+        <div class="prov-name">${esc(dom.nombre)}</div>
         <div class="prov-rows">
           <div class="prov-row"><span>Base prestaciones</span><span class="prov-val prov-base">${fmt(liq.base)}</span></div>
           <div class="prov-row"><span>Cesantías</span><span class="prov-val">${fmt(liq.cesantias)}</span></div>
@@ -473,17 +474,16 @@ function renderNomina() {
       <tr>
         <td>
           <div class="worker-cell">
-            <div class="avatar">${initials(dom.nombre)}</div>
+            <div class="avatar">${esc(initials(dom.nombre))}</div>
             <div>
-              <div class="worker-name">${dom.nombre}</div>
-              <div class="worker-placa">🏍 ${dom.placa}</div>
+              <div class="worker-name">${esc(dom.nombre)}</div>
+              <div class="worker-placa">🏍 ${esc(dom.placa)}</div>
             </div>
           </div>
         </td>
         <td class="text-center">
-          <input type="number" class="dias-cell-input dias-dom-${dom.id}"
-            value="${S.params.diasPeriodo}" min="1" max="30"
-            onchange="renderNomina()" />
+          <input type="number" class="dias-cell-input dias-dom-${esc(dom.id)}"
+            value="${S.params.diasPeriodo}" min="1" max="30" />
         </td>
         <td class="text-right mono-cell">${fmt(liq.salario)}</td>
         <td class="text-right mono-cell">${fmt(liq.transp)}</td>
@@ -492,7 +492,7 @@ function renderNomina() {
         <td class="text-right mono-cell danger-col">${fmt(liq.totalDed)}${cxcBadge}</td>
         <td class="text-right mono-cell success-col" style="font-weight:700">${fmt(liq.neto)}</td>
         <td>
-          <button class="row-action" title="Ver detalle" onclick="openLiqModal('${dom.id}')">
+          <button type="button" class="row-action ver-liquidacion" title="Ver detalle" data-dom="${esc(dom.id)}">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           </button>
         </td>
@@ -592,14 +592,14 @@ function renderLibro(filtro = '') {
   body.innerHTML = lista.map(a => `
     <tr>
       <td class="mono-cell" style="color:var(--accent);font-size:11.5px">
-        ${a.comp}
+        ${esc(a.comp)}
         ${a.soporteArchivo ? `<button type="button" class="ver-soporte" data-ruta="${esc(a.soporteArchivo)}"
              title="Ver documento soporte: ${esc(nombreDeSoporte(a.soporteArchivo))}"
              style="background:none;border:none;padding:0 0 0 4px;cursor:pointer;color:var(--text-3);font-size:12px">&#128206;</button>` : ''}
       </td>
       <td style="font-size:12px;color:var(--text-3)">${fmtDate(a.fecha)}</td>
-      <td><span class="chip ${a.chip}" style="font-size:11px">${a.modLabel}</span></td>
-      <td style="font-size:12.5px;color:var(--text-2);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.desc}</td>
+      <td><span class="chip ${esc(a.chip)}" style="font-size:11px">${esc(a.modLabel)}</span></td>
+      <td style="font-size:12.5px;color:var(--text-2);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.desc)}</td>
       <td class="text-right mono-cell">${fmt(a.totD)}</td>
       <td class="text-right mono-cell" style="color:var(--text-3)">${fmt(a.totC)}</td>
     </tr>`).join('');
@@ -729,7 +729,7 @@ function fillDomSel() {
   const sel = document.getElementById('domSel');
   if (!sel) return;
   sel.innerHTML = '<option value="">— Todos / General —</option>' +
-    S.domiciliarios.map(d => `<option value="${d.id}">${d.nombre} · ${d.placa}</option>`).join('');
+    S.domiciliarios.map(d => `<option value="${esc(d.id)}">${esc(d.nombre)} · ${esc(d.placa)}</option>`).join('');
 }
 
 // Fill socio selects
@@ -737,7 +737,7 @@ function fillSocioSel() {
   const sel = document.getElementById('socioNombre');
   if (!sel) return;
   sel.innerHTML = '<option value="">— Seleccionar socio —</option>' +
-    S.socios.map(s => `<option value="${s.id}">${s.nombre}</option>`).join('');
+    S.socios.map(s => `<option value="${esc(s.id)}">${esc(s.nombre)}</option>`).join('');
 }
 
 // Show asiento in a target card
@@ -1437,7 +1437,7 @@ function fillCuentaConceptoSel() {
     .sort();
   sel.innerHTML = cuentas.length
     ? '<option value="">— Seleccionar cuenta —</option>'
-      + cuentas.map(c => '<option value="' + c + '">' + c + ' · ' + esc(nombreCuenta(c)) + '</option>').join('')
+      + cuentas.map(c => '<option value="' + esc(c) + '">' + esc(c) + ' · ' + esc(nombreCuenta(c)) + '</option>').join('')
     : '<option value="">— El plan de cuentas no tiene cuentas para este tipo —</option>';
   if (cuentas.includes(elegida)) sel.value = elegida;
 }
@@ -1718,8 +1718,8 @@ function fillOrigenPago() {
   const elegida = sel.value || CUENTA_CAJA_GENERAL;
   const tesoreria = [...CUENTAS.keys()].filter(c => c.length === 4 && c.startsWith('11')).sort();
   const opciones = tesoreria.length ? tesoreria : [CUENTA_CAJA_GENERAL];
-  sel.innerHTML = opciones.map(c => '<option value="' + c + '">'
-    + esc(ORIGEN_PAGO_LABELS[c] || nombreCuenta(c)) + ' (' + c + ')</option>').join('');
+  sel.innerHTML = opciones.map(c => '<option value="' + esc(c) + '">'
+    + esc(ORIGEN_PAGO_LABELS[c] || nombreCuenta(c)) + ' (' + esc(c) + ')</option>').join('');
   sel.value = opciones.includes(elegida) ? elegida : opciones[0];
   sel.disabled = false;
   if (nota) nota.style.display = 'none';
@@ -2009,7 +2009,7 @@ function mostrarAlertaFiscalSocio(tipo, soporte) {
         titulo: 'Documento requerido: Acta de Junta de Socios',
         texto: !soporte
           ? '⚠ No registraste un soporte. Para aportes de capital se <strong>requiere Acta de Junta de Socios</strong> firmada para soportar el aumento patrimonial ante la DIAN.'
-          : `Soporte registrado: <strong>${soporte}</strong>. Verifica que sea el Acta de Junta de Socios correspondiente.`,
+          : `Soporte registrado: <strong>${esc(soporte)}</strong>. Verifica que sea el Acta de Junta de Socios correspondiente.`,
       },
     ],
     gasto_pagado_socio: [
@@ -2445,6 +2445,28 @@ async function aplicarSesion(session) {
   // El rol se resuelve ANTES de retirar la pantalla de acceso: asi no hay ni
   // un instante con contenido tecnico visible para quien no debe verlo.
   await cargarPerfil(session.user.id);
+
+  // Cuenta que un auditor aún no aprueba (sql/016): la base no le entrega
+  // ningún dato, así que ni se monta la app. Se cierra la sesión y se explica
+  // en la pantalla de acceso.
+  if (rolActual() === ROL_PENDIENTE) {
+    sesionMontada = false;
+    rolPintado = null;
+    try {
+      await cerrarSesion();
+    } catch (err) {
+      console.error('[Auth] No se pudo cerrar la sesión pendiente:', err);
+    }
+    mostrarLogin(true);
+    const caja = document.getElementById('loginError');
+    if (caja) {
+      caja.textContent = 'Tu cuenta aún no tiene acceso: un auditor debe aprobarla. '
+        + 'Cuando lo haga, vuelve a iniciar sesión.';
+      caja.hidden = false;
+    }
+    return;
+  }
+
   aplicarPermisos();
   mostrarLogin(false);
 
@@ -2589,14 +2611,29 @@ function montarControlesSesion() {
   });
 }
 // ─────────────────────────────────────────────────────────────────────────────
-// 12.b EXPOSICIÓN GLOBAL
+// 12.b CÁLCULOS EN VIVO
 // ─────────────────────────────────────────────────────────────────────────────
-// app.js pasó a ser módulo ES (<script type="module">) para poder importar el
-// cliente de Supabase. Dentro de un módulo las funciones ya no son globales,
-// pero los atributos onclick/oninput del HTML las siguen buscando en `window`.
-Object.assign(window, {
-  calcularIva, calcReteFuente, calcICA, refreshNomina, renderNomina, openLiqModal,
-});
+// Antes eran atributos oninput/onchange/onclick en el HTML, que obligaban a
+// exponer estas funciones en `window`. La Content-Security-Policy (vite.config.mjs)
+// bloquea todo JavaScript escrito en atributos, así que se registran aquí.
+function montarCalculosEnVivo() {
+  [
+    ['valorVenta', 'input', calcularIva], ['ivaVenta', 'change', calcularIva],
+    ['smlv', 'input', refreshNomina], ['auxTransporte', 'input', refreshNomina],
+    ['auxRodamiento', 'input', refreshNomina], ['diasPeriodo', 'input', refreshNomina],
+    ['valorOp', 'input', calcReteFuente], ['reteFuente', 'change', calcReteFuente],
+    ['icaTarifa', 'input', calcICA],
+  ].forEach(([id, evento, fn]) => document.getElementById(id)?.addEventListener(evento, fn));
+
+  // Las filas de nómina se repintan en cada cálculo: se delega en document.
+  document.addEventListener('change', (e) => {
+    if (e.target.closest('.dias-cell-input')) renderNomina();
+  });
+  document.addEventListener('click', (e) => {
+    const boton = e.target.closest('.ver-liquidacion');
+    if (boton) openLiqModal(boton.dataset.dom);
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 13. INICIALIZACIÓN Y EVENT LISTENERS
@@ -2620,6 +2657,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Nada se carga sin sesion. observarSesion() dispara aplicarSesion() tanto
   // al arrancar como en cada login / logout / renovacion de token.
   montarControlesSesion();
+  montarCalculosEnVivo();
   observarSesion(aplicarSesion);
   (async () => { await aplicarSesion(await sesionActual()); })();
 
