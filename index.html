@@ -3,17 +3,56 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#1c1c1e" />
   <title>Módulo Contable · Contabilidad ATL</title>
   <meta name="description"
     content="Sistema contable integral: socios, clientes, nómina operativa, proveedores e impuestos para operación logística con domiciliarios." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 
 <body>
+
+  <!-- ══════════════ INTERFAZ MÓVIL ══════════════
+       Solo en pantallas angostas: barra superior, velo y hojas del sistema.
+       El comportamiento está en movil.js. -->
+  <header class="barra-movil">
+    <div class="barra-movil-marca">
+      <span class="brand-icon" aria-hidden="true">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+          <path d="M2 17l10 5 10-5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+          <path d="M2 12l10 5 10-5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+        </svg>
+      </span>
+      <span class="brand-name">Contabilidad ATL</span>
+    </div>
+    <button type="button" class="barra-movil-cuenta" id="btnCuentaMovil" aria-label="Tu sesión" aria-haspopup="dialog">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="10" r="3.2" />
+        <path d="M6.2 18.4a7 7 0 0 1 11.6 0" />
+      </svg>
+    </button>
+  </header>
+
+  <div class="velo-hoja" id="veloHoja" aria-hidden="true"></div>
+
+  <div class="hoja-sistema" id="hojaCuenta" tabindex="-1" role="dialog" aria-labelledby="hojaCuentaTitulo">
+    <div class="hoja-sistema-cab">
+      <span class="hoja-sistema-titulo" id="hojaCuentaTitulo">Tu sesión</span>
+      <button type="button" class="hoja-cerrar" data-cerrar-hoja>Cerrar</button>
+    </div>
+    <div class="hoja-sistema-cuerpo" id="hojaCuentaCuerpo"></div>
+  </div>
+
+  <div class="hoja-sistema" id="hojaMas" tabindex="-1" role="dialog" aria-labelledby="hojaMasTitulo">
+    <div class="hoja-sistema-cab">
+      <span class="hoja-sistema-titulo" id="hojaMasTitulo">Más secciones</span>
+      <button type="button" class="hoja-cerrar" data-cerrar-hoja>Cerrar</button>
+    </div>
+    <div class="lista-mas" id="hojaMasLista"></div>
+  </div>
 
   <!-- ══════════════ SIDEBAR ══════════════ -->
   <aside class="sidebar">
@@ -44,6 +83,7 @@
           </svg>
         </span>
         <span class="nav-label">Socios</span>
+        <span class="nav-corto">Socios</span>
         <span class="nav-badge" id="badge-socios">0</span>
       </button>
 
@@ -55,6 +95,7 @@
           </svg>
         </span>
         <span class="nav-label">Clientes · Ventas</span>
+        <span class="nav-corto">Ventas</span>
         <span class="nav-badge" id="badge-clientes">0</span>
       </button>
 
@@ -67,6 +108,7 @@
           </svg>
         </span>
         <span class="nav-label">Trabajadores · Nómina</span>
+        <span class="nav-corto">Nómina</span>
         <span class="nav-badge" id="badge-nomina">4</span>
       </button>
 
@@ -79,6 +121,7 @@
           </svg>
         </span>
         <span class="nav-label">Operación · Proveedores</span>
+        <span class="nav-corto">Operación</span>
         <span class="nav-badge" id="badge-operacion">0</span>
       </button>
 
@@ -91,6 +134,7 @@
           </svg>
         </span>
         <span class="nav-label">Gestión Operativa</span>
+        <span class="nav-corto">Gestión</span>
         <span class="nav-badge" id="badge-compras">0</span>
       </button>
 
@@ -104,6 +148,7 @@
           </svg>
         </span>
         <span class="nav-label">Libro Diario</span>
+        <span class="nav-corto">Diario</span>
         <span class="nav-badge" id="badge-diario">0</span>
       </button>
 
@@ -118,7 +163,20 @@
           </svg>
         </span>
         <span class="nav-label">Impuestos</span>
+        <span class="nav-corto">Impuestos</span>
         <span class="nav-badge alert" id="badge-impuestos">!</span>
+      </button>
+
+      <!-- Solo en móvil, cuando hay más de cinco secciones -->
+      <button type="button" class="tab-mas" id="tabMas" aria-haspopup="dialog">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="5" cy="12" r="1.8" />
+            <circle cx="12" cy="12" r="1.8" />
+            <circle cx="19" cy="12" r="1.8" />
+          </svg>
+        </span>
+        <span class="nav-corto">Más</span>
       </button>
     </nav>
 

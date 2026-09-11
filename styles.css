@@ -45,9 +45,14 @@
   --r-lg: 16px;
   --r-xl: 20px;
 
-  /* Fuente */
-  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
-  --font-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  /* Fuente: la del sistema (SF en Apple, Segoe en Windows, Roboto en Android) */
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* Barras en móvil (HIG): barra superior y barra de pestañas */
+  --barra-superior-h: 52px;
+  --barra-pestanas-h: 56px;
+  --curva-hoja: cubic-bezier(0.32, 0.72, 0, 1);
 
   /* Layout */
   --sidebar-w: 232px;
@@ -1463,4 +1468,860 @@ html:not([data-rol="auditor"]) .solo-auditor {
 .field-input:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   TOQUE, ÁREAS SEGURAS Y ADAPTACIÓN MÓVIL (Apple Human Interface Guidelines)
+   Solo estructura, jerarquía, espacios y comportamiento táctil: todos los
+   colores salen de las variables de arriba.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Base para cualquier pantalla ─────────────────────────────────────── */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+button,
+a,
+input,
+select,
+textarea,
+summary,
+label {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;   /* sin espera de doble toque */
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.kpi-value,
+.mono,
+.mono-cell,
+.tax-value,
+.prov-val,
+.liq-val {
+  font-variant-numeric: tabular-nums;
+}
+
+.table-wrap,
+.asiento-table-wrap {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+/* Piezas que solo existen en móvil */
+.barra-movil,
+.velo-hoja,
+.hoja-sistema,
+.abrir-hoja,
+.tab-mas,
+.nav-corto,
+.hoja-cerrar {
+  display: none;
+}
+
+.tab-mas {
+  position: relative;
+  border: none;
+  background: transparent;
+  font-family: var(--font);
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Escritorio angosto: formulario sobre la tabla ────────────────────── */
+@media (max-width: 1180px) {
+  .two-col-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── Áreas de toque de 44 px y campos de 16 px (móvil o pantalla táctil) ─
+   16 px es el mínimo con el que iOS Safari no hace zoom al tocar un campo.
+   !important solo donde un estilo en línea fija un tamaño menor. */
+@media (max-width: 900px), (pointer: coarse) {
+  input,
+  select,
+  textarea,
+  .field-input,
+  .field-select,
+  .form-control,
+  .tax-input,
+  .dias-cell-input {
+    font-size: 16px !important;
+  }
+
+  .field-input,
+  .field-select,
+  .form-control,
+  .tax-input,
+  .dias-cell-input {
+    min-height: 44px;
+  }
+
+  .dias-cell-input {
+    width: 64px;
+  }
+
+  .tax-input {
+    width: 76px;
+  }
+
+  .btn-primary,
+  .btn-ghost,
+  .btn-ghost-sm,
+  .nav-item,
+  .aviso-rol button,
+  #btnCerrarSesion,
+  #btnProbarConexion,
+  #btnMfaSalir {
+    min-height: 44px;
+  }
+
+  .btn-ghost-sm {
+    padding: 10px 14px;
+  }
+
+  .row-action,
+  .modal-close-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  #btnVerPassword {
+    width: 44px !important;
+    height: 44px !important;
+  }
+
+  /* Acciones dentro de las tablas (soporte, retención, conceptos) */
+  .ver-soporte,
+  .adjuntar-soporte,
+  .cambiar-retencion,
+  .editar-concepto,
+  .activar-concepto {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px 12px !important;
+  }
+
+  .data-table summary {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+}
+
+/* ── Móvil ────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  body {
+    display: block;
+  }
+
+  /* Barra superior fija, bajo la Dynamic Island */
+  .barra-movil {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 60;
+    min-height: calc(var(--barra-superior-h) + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) max(6px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+    background: var(--bg-surface);
+    background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .barra-movil-marca {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .barra-movil .brand-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+
+  .barra-movil .brand-name {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+  }
+
+  .barra-movil-cuenta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--accent);
+    cursor: pointer;
+  }
+
+  /* Barra de pestañas inferior, sobre la barra de inicio */
+  .sidebar {
+    top: auto;
+    bottom: 0;
+    right: 0;
+    width: auto;
+    min-height: 0;
+    flex-direction: row;
+    padding: 0 max(4px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(4px, env(safe-area-inset-left));
+    border-right: none;
+    border-top: 1px solid var(--border);
+    background: var(--bg-surface);
+    background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    z-index: 60;
+  }
+
+  .sidebar-brand,
+  .nav-group-label,
+  .sidebar .sidebar-footer {
+    display: none;
+  }
+
+  .sidebar-nav {
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: space-around;
+    gap: 0;
+    width: 100%;
+    padding: 0;
+  }
+
+  .nav-item,
+  .sidebar-nav.con-mas .tab-mas {
+    flex: 1 1 0;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 3px;
+    width: auto;
+    min-width: 44px;
+    min-height: var(--barra-pestanas-h);
+    padding: 7px 2px 5px;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 10.5px;
+    font-weight: 500;
+    text-align: center;
+  }
+
+  .sidebar-nav.con-mas .tab-mas {
+    display: flex;
+  }
+
+  .nav-item:hover {
+    background: transparent;
+    color: var(--text-2);
+  }
+
+  .nav-item.active,
+  .nav-item.active:hover,
+  .tab-mas.active {
+    background: transparent;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .sidebar .nav-icon {
+    width: auto;
+    color: inherit;
+  }
+
+  .sidebar .nav-icon svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .nav-label {
+    display: none;
+  }
+
+  .nav-corto {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.1;
+  }
+
+  .nav-item.en-mas {
+    display: none;
+  }
+
+  .sidebar .nav-badge {
+    position: absolute;
+    top: 4px;
+    left: calc(50% + 7px);
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    font-size: 10.5px;
+    line-height: 18px;
+    border-radius: 9px;
+  }
+
+  /* Contenido entre las dos barras */
+  .main-content {
+    margin-left: 0;
+    max-width: none;
+    padding:
+      calc(var(--barra-superior-h) + 16px + env(safe-area-inset-top))
+      max(16px, env(safe-area-inset-right))
+      calc(var(--barra-pestanas-h) + 32px + env(safe-area-inset-bottom))
+      max(16px, env(safe-area-inset-left));
+  }
+
+  .panel-top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  .panel-title {
+    font-size: 30px;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+
+  .panel-desc {
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .panel-top > .btn-primary,
+  .panel-top > .btn-ghost-sm {
+    justify-content: center;
+    width: 100%;
+  }
+
+  #panel-nomina .panel-top > div > * {
+    flex: 1 1 100%;
+  }
+
+  #btnLiquidarPeriodo {
+    justify-content: center;
+  }
+
+  /* El formulario ahora se abre desde su propio botón */
+  #btnNuevoSocio,
+  #btnNuevaVenta {
+    display: none;
+  }
+
+  .kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .kpi-card {
+    padding: 14px;
+    gap: 6px;
+  }
+
+  .kpi-value {
+    font-size: 19px;
+    overflow-wrap: anywhere;
+  }
+
+  .two-col-layout {
+    gap: 12px;
+  }
+
+  .impuestos-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .params-body {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .card-header {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 14px 16px;
+  }
+
+  .card-title {
+    font-size: 16px;
+  }
+
+  .card-count {
+    font-size: 13px;
+  }
+
+  .card-body {
+    padding: 16px;
+    gap: 18px;
+  }
+
+  .form-card .card-body {
+    padding: 16px;
+  }
+
+  .field-group {
+    gap: 7px;
+  }
+
+  .field-label {
+    font-size: 13px;
+  }
+
+  .field-input,
+  .field-select {
+    padding: 11px 14px;
+    border-radius: 10px;
+  }
+
+  .field-select {
+    padding-right: 36px;
+    background-position: right 14px center;
+  }
+
+  .btn-primary,
+  .btn-ghost {
+    padding: 12px 18px;
+    font-size: 16px;
+    border-radius: 12px;
+  }
+
+  .abrir-hoja {
+    display: flex;
+    min-height: 50px;
+  }
+
+  /* Adjuntar soporte: el selector de archivo no se sale del formulario */
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .form-group > label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+
+  .form-control {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* Tablas: se desplazan con el dedo en lugar de apretar las columnas */
+  .table-wrap .data-table {
+    min-width: 640px;
+  }
+
+  .table-wrap .nomina-table {
+    min-width: 860px;
+  }
+
+  .data-table td {
+    font-size: 14px;
+  }
+
+  .data-table tbody tr:hover td {
+    background: transparent;
+  }
+
+  .tax-row {
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+
+  .tax-status,
+  .tax-disclaimer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .alerta-box {
+    padding: 14px;
+  }
+
+  /* Filtros del Libro Diario en dos columnas */
+  #panel-diario .card-header > div {
+    display: grid !important;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px 12px !important;
+    width: 100%;
+  }
+
+  #panel-diario .card-header input,
+  #panel-diario .card-header select,
+  #panel-diario .card-header button {
+    width: 100% !important;
+    padding: 10px 14px !important;
+  }
+
+  #panel-diario .card-header select,
+  #panel-diario .card-header button {
+    grid-column: 1 / -1;
+  }
+
+  #btnConsultarDiario {
+    justify-content: center;
+    font-size: 16px !important;
+  }
+
+  /* ── Hojas que suben desde abajo ─────────────────────────────────── */
+  .velo-hoja {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 290;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+  }
+
+  .velo-hoja.visible {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.3s ease;
+  }
+
+  html.hoja-abierta,
+  html.hoja-abierta body {
+    overflow: hidden;
+  }
+
+  .form-card.hoja,
+  .hoja-sistema {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 300;
+    max-height: 88vh;
+    max-height: calc(100dvh - env(safe-area-inset-top) - 16px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.45);
+    /* Cerrada: fuera de la pantalla (incluida su sombra) y sin recibir toques.
+       No se oculta con `visibility`: Chromium no siempre propaga su transición
+       a los elementos internos y la hoja abría en blanco. El foco del teclado y
+       los lectores de pantalla los bloquea `inert` (movil.js). */
+    transform: translateY(calc(100% + 64px));
+    pointer-events: none;
+    transition: transform 0.34s var(--curva-hoja);
+  }
+
+  .form-card.hoja.abierta,
+  .hoja-sistema.abierta {
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  .form-card.hoja.arrastrando,
+  .hoja-sistema.arrastrando {
+    transition: none;
+  }
+
+  .form-card.hoja:focus,
+  .hoja-sistema:focus {
+    outline: none;
+  }
+
+  /* Cabecera fija con asa para arrastrar */
+  .hoja .card-header,
+  .hoja-sistema-cab {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-top: 24px;
+    background: var(--bg-card);
+  }
+
+  .hoja .card-header::before,
+  .hoja-sistema-cab::before,
+  .modal-hdr::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    width: 36px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--border-strong);
+    transform: translateX(-50%);
+  }
+
+  .hoja .card-header .card-title {
+    flex: 1;
+    order: 1;
+    font-size: 17px;
+  }
+
+  .hoja .card-header .badge-note,
+  .hoja .card-header .label-note {
+    order: 3;
+  }
+
+  .hoja-cerrar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    order: 2;
+    margin-left: auto;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 4px;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font-family: var(--font);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .hoja-sistema {
+    max-height: 80vh;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border-mid);
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .hoja-sistema-cab {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-right: 12px;
+    padding-bottom: 8px;
+    padding-left: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hoja-sistema-titulo {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-1);
+  }
+
+  .hoja-sistema-cuerpo {
+    padding: 8px 16px;
+  }
+
+  /* Hoja de sesión: el pie de la barra lateral, a tamaño táctil */
+  #hojaCuentaCuerpo .sidebar-footer {
+    margin: 0;
+    padding: 4px 0 0;
+    border-top: none;
+  }
+
+  #hojaCuentaCuerpo .period-selector {
+    min-height: 44px;
+    font-size: 15px;
+    color: var(--text-2);
+  }
+
+  #hojaCuentaCuerpo #sesionEmail {
+    font-size: 15px !important;
+    color: var(--text-2) !important;
+  }
+
+  #hojaCuentaCuerpo #sesionRol {
+    font-size: 12px !important;
+  }
+
+  #hojaCuentaCuerpo #btnCerrarSesion {
+    margin-top: 14px !important;
+    font-size: 16px !important;
+    border-radius: 12px !important;
+  }
+
+  /* Hoja «Más» */
+  .lista-mas {
+    display: grid;
+    gap: 4px;
+    padding: 8px;
+  }
+
+  .opcion-mas {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-height: 52px;
+    padding: 10px 12px;
+    border: none;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--text-1);
+    font-family: var(--font);
+    font-size: 17px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .opcion-mas.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+
+  .opcion-mas .nav-icon {
+    width: 28px;
+    color: inherit;
+  }
+
+  .opcion-mas .nav-icon svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .opcion-mas-etiqueta {
+    flex: 1;
+  }
+
+  /* Modales como hojas */
+  .modal-bg {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal-box,
+  .modal-wide {
+    max-width: none;
+    max-height: 90vh;
+    max-height: calc(100dvh - env(safe-area-inset-top) - 16px);
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: hojaSube 0.34s var(--curva-hoja);
+  }
+
+  .modal-hdr {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 24px 12px 12px 16px;
+    background: var(--bg-card);
+  }
+
+  .modal-title {
+    font-size: 17px;
+  }
+
+  .modal-body {
+    padding: 16px;
+  }
+
+  .modal-footer {
+    position: sticky;
+    bottom: 0;
+    flex-direction: column-reverse;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--bg-card);
+  }
+
+  .modal-footer > button {
+    justify-content: center;
+    width: 100%;
+  }
+
+  /* Acceso y segundo factor, fuera de las áreas del sistema */
+  #pantallaLogin,
+  #pantallaMfa {
+    padding:
+      max(20px, env(safe-area-inset-top))
+      max(16px, env(safe-area-inset-right))
+      max(20px, env(safe-area-inset-bottom))
+      max(16px, env(safe-area-inset-left)) !important;
+  }
+
+  #formLogin,
+  #formMfa {
+    max-width: 420px !important;
+    padding: 24px 20px !important;
+  }
+
+  #btnLogin,
+  #btnMfa {
+    min-height: 48px;
+    font-size: 17px !important;
+    border-radius: 12px !important;
+  }
+
+  /* Confirmación de guardado, sobre la barra de pestañas */
+  #toastGuardado {
+    left: max(16px, env(safe-area-inset-left)) !important;
+    right: max(16px, env(safe-area-inset-right)) !important;
+    bottom: calc(var(--barra-pestanas-h) + 16px + env(safe-area-inset-bottom)) !important;
+    padding: 12px 16px !important;
+    font-size: 15px !important;
+    text-align: center;
+  }
+}
+
+@keyframes hojaSube {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* ── Teléfonos angostos ───────────────────────────────────────────────── */
+@media (max-width: 560px) {
+  .field-row,
+  .params-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
 }

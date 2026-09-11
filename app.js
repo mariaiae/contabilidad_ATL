@@ -12,6 +12,7 @@ import {
   ROL_PENDIENTE, nivelDeAutenticacion, factorTotpVerificado, iniciarRegistroTotp, verificarCodigoTotp,
 } from './auth.js';
 import { adjuntarSoporte, urlDeSoporte, nombreDeSoporte, validarSoporte } from './soportes.js';
+import { montarInterfazMovil, organizarBarraPestanas, cerrarHojaTrasGuardar } from './movil.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. PUC — Plan Único de Cuentas (relevantes para el módulo)
@@ -781,6 +782,8 @@ function fillSocioSel() {
 
 // Show asiento in a target card
 function showAsiento(cardId, compId, bodyId, a) {
+  // En móvil el formulario es una hoja: se cierra para que se vea el resultado.
+  cerrarHojaTrasGuardar();
   // El asiento generado es informacion tecnica del auditor; los demas roles
   // reciben solo la confirmacion de que el registro se guardo.
   if (!esAuditor()) { avisoGuardado(a.comp); return; }
@@ -2472,6 +2475,7 @@ function aplicarPermisos() {
 
   const activa = document.querySelector('.nav-item.active');
   if (activa && !puedeVerTab(activa.dataset.tab)) activarPestana('socios');
+  organizarBarraPestanas();   // en móvil: «Más» si el rol ve más de cinco secciones
 
   const etiqueta = document.getElementById('sesionRol');
   if (etiqueta) {
@@ -2998,6 +3002,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // al arrancar como en cada login / logout / renovacion de token.
   montarControlesSesion();
   montarCalculosEnVivo();
+  montarInterfazMovil({ puedeVerTab });
   observarSesion(aplicarSesion);
   (async () => { await aplicarSesion(await sesionActual()); })();
 
@@ -3399,6 +3404,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ['terceroNit', 'terceroNombre'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     const casilla = document.getElementById('terceroNoSujeto');
     if (casilla) casilla.checked = false;
+    cerrarHojaTrasGuardar();
     await recargarGestionOperativa();
   });
 
@@ -3538,6 +3544,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     limpiarFormConcepto();
+    cerrarHojaTrasGuardar();
     await recargarGestionOperativa();
   });
 
