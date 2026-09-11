@@ -4,7 +4,7 @@
 // En pantallas angostas (≤ 900 px), siguiendo las Apple Human Interface
 // Guidelines:
 //   · la barra lateral se convierte en una barra de pestañas inferior; con más
-//     de cinco secciones, la quinta pestaña es «Más» y abre las restantes;
+//     de cinco secciones (perfil auditor) la barra se desliza con el dedo;
 //   · los formularios de registro se abren como hojas que suben desde abajo;
 //   · la sesión (correo, rol, cerrar sesión) se consulta en su propia hoja.
 //
@@ -12,7 +12,7 @@
 // cambia la paleta de la marca. En escritorio nada de esto se ve.
 
 const CONSULTA_MOVIL = '(max-width: 900px)';
-const MAX_PESTANAS = 5;          // HIG: con más de cinco, la quinta se vuelve «Más»
+const PESTANAS_SIN_DESLIZAR = 5;  // hasta cinco caben a lo ancho; con más, la barra se desliza
 const DISTANCIA_PARA_CERRAR = 90; // px arrastrados hacia abajo para cerrar una hoja
 
 const modoMovil = window.matchMedia(CONSULTA_MOVIL);
@@ -26,6 +26,7 @@ const ICONO_MAS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" s
   + 'stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
 
 const velo = () => document.getElementById('veloHoja');
+const barraDeSecciones = () => document.querySelector('.sidebar-nav');
 
 // ── Hojas ─────────────────────────────────────────────────────────────────────
 
@@ -168,53 +169,50 @@ function sincronizarInert() {
 
 // ── Barra de pestañas ─────────────────────────────────────────────────────────
 
-function marcarMasActivo() {
-  const activa = document.querySelector('.sidebar-nav .nav-item.en-mas.active');
-  document.getElementById('tabMas')?.classList.toggle('active', !!activa);
+/** Desvanece el borde de la barra por el lado donde quedan más pestañas. */
+function actualizarBordesBarra() {
+  const nav = barraDeSecciones();
+  if (!nav) return;
+  const desliza = esMovil() && nav.classList.contains('desliza') && nav.scrollWidth > nav.clientWidth + 1;
+  nav.classList.toggle('hay-antes', desliza && nav.scrollLeft > 2);
+  nav.classList.toggle('hay-despues', desliza && nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 2);
+}
+
+/** Lleva a la vista la pestaña activa, por ejemplo al saltar a Impuestos. */
+function mostrarPestanaActiva(suave = false) {
+  const nav = barraDeSecciones();
+  const activa = nav?.querySelector('.nav-item.active');
+  if (!esMovil() || !activa || !nav.classList.contains('desliza')) return;
+  const izquierda = activa.offsetLeft;
+  const derecha = izquierda + activa.offsetWidth;
+  if (izquierda < nav.scrollLeft) {
+    nav.scrollTo({ left: izquierda, behavior: suave ? 'smooth' : 'auto' });
+  } else if (derecha > nav.scrollLeft + nav.clientWidth) {
+    nav.scrollTo({ left: derecha - nav.clientWidth, behavior: suave ? 'smooth' : 'auto' });
+  }
 }
 
 /**
- * Reparte las secciones visibles para el rol actual: hasta cinco pestañas; si
- * hay más, las cuatro primeras y «Más». Se llama al cambiar de rol.
+ * Hasta cinco secciones visibles para el rol, la barra reparte el ancho entre
+ * ellas. Con más (perfil auditor), la barra se desliza. Se llama al cambiar de rol.
  */
 export function organizarBarraPestanas() {
-  const nav = document.querySelector('.sidebar-nav');
+  const nav = barraDeSecciones();
   if (!nav) return;
-  const secciones = [...nav.querySelectorAll('.nav-item[data-tab]')];
-  const visibles = secciones.filter(b => puedeVerSeccion(b.dataset.tab));
-  const hayMas = visibles.length > MAX_PESTANAS;
-
-  secciones.forEach(b => b.classList.remove('en-mas'));
-  if (hayMas) visibles.slice(MAX_PESTANAS - 1).forEach(b => b.classList.add('en-mas'));
-  nav.classList.toggle('con-mas', hayMas);
-  marcarMasActivo();
+  const visibles = [...nav.querySelectorAll('.nav-item[data-tab]')].filter(b => puedeVerSeccion(b.dataset.tab));
+  nav.classList.toggle('desliza', visibles.length > PESTANAS_SIN_DESLIZAR);
+  if (!nav.classList.contains('desliza')) nav.scrollLeft = 0;
+  mostrarPestanaActiva();
+  actualizarBordesBarra();
 }
 
-/** Hoja «Más»: lista las secciones que no caben en la barra. */
-function abrirHojaMas() {
-  const lista = document.getElementById('hojaMasLista');
-  if (!lista) return;
-  const opciones = [...document.querySelectorAll('.sidebar-nav .nav-item.en-mas')].map(original => {
-    const opcion = document.createElement('button');
-    opcion.type = 'button';
-    opcion.className = 'opcion-mas' + (original.classList.contains('active') ? ' active' : '');
-
-    const icono = original.querySelector('.nav-icon')?.cloneNode(true);
-    const etiqueta = document.createElement('span');
-    etiqueta.className = 'opcion-mas-etiqueta';
-    etiqueta.textContent = original.querySelector('.nav-label')?.textContent.trim() || '';
-    const insignia = original.querySelector('.nav-badge')?.cloneNode(true);
-    insignia?.removeAttribute('id');
-
-    opcion.append(...[icono, etiqueta, insignia].filter(Boolean));
-    opcion.addEventListener('click', () => {
-      cerrarHoja({ devolverFoco: false });
-      original.click();   // mismo camino que la barra lateral: respeta permisos
-    });
-    return opcion;
+/** Un contador en cero no se muestra en la barra de pestañas. */
+function vigilarContadores() {
+  document.querySelectorAll('.sidebar .nav-badge').forEach(contador => {
+    const marcar = () => contador.classList.toggle('sin-valor', contador.textContent.trim() === '0');
+    marcar();
+    new MutationObserver(marcar).observe(contador, { childList: true, characterData: true, subtree: true });
   });
-  lista.replaceChildren(...opciones);
-  abrirHoja(document.getElementById('hojaMas'));
 }
 
 // ── Sesión ────────────────────────────────────────────────────────────────────
@@ -241,11 +239,11 @@ function ubicarSesion() {
 export function montarInterfazMovil({ puedeVerTab }) {
   puedeVerSeccion = puedeVerTab;
   prepararHojasDeRegistro();
+  vigilarContadores();
 
   document.getElementById('btnCuentaMovil')?.addEventListener('click', () => {
     abrirHoja(document.getElementById('hojaCuenta'));
   });
-  document.getElementById('tabMas')?.addEventListener('click', abrirHojaMas);
   velo()?.addEventListener('click', () => cerrarHoja());
 
   document.querySelectorAll('.hoja-sistema').forEach(hoja => {
@@ -265,15 +263,17 @@ export function montarInterfazMovil({ puedeVerTab }) {
     if (e.key === 'Escape' && hojaAbierta) cerrarHoja();
   });
 
-  // Al cambiar de sección: se cierra cualquier hoja y se vuelve al inicio.
-  document.querySelector('.sidebar-nav')?.addEventListener('click', (e) => {
-    if (!e.target.closest('.nav-item')) return;
-    marcarMasActivo();
-    if (esMovil()) {
-      cerrarHoja({ devolverFoco: false });
-      window.scrollTo({ top: 0 });
-    }
+  const nav = barraDeSecciones();
+  // Al cambiar de sección: se cierra cualquier hoja, se vuelve al inicio y la
+  // pestaña elegida queda completa a la vista.
+  nav?.addEventListener('click', (e) => {
+    if (!e.target.closest('.nav-item') || !esMovil()) return;
+    cerrarHoja({ devolverFoco: false });
+    window.scrollTo({ top: 0 });
+    requestAnimationFrame(() => mostrarPestanaActiva(true));
   });
+  nav?.addEventListener('scroll', actualizarBordesBarra, { passive: true });
+  window.addEventListener('resize', actualizarBordesBarra, { passive: true });
 
   const aplicarModo = () => {
     ubicarSesion();

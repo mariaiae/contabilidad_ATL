@@ -712,7 +712,7 @@ function updateImpuestos() {
   poner('rte-total', fmt(Object.values(S.rteAcum).reduce((a, b) => a + b, 0)));
 
   poner('nd-multas', fmt(S.multasAcum));
-  poner('nd-sanciones', '$0');
+  poner('nd-sanciones', fmt(0));
   poner('nd-total', fmt(S.multasAcum));
 
   poner('icaPeriodo', periodos.anual.etiqueta);

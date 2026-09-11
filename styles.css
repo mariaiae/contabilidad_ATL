@@ -1040,6 +1040,7 @@ body {
 .tax-body {
   display: flex;
   flex-direction: column;
+  gap: 0;   /* las filas ya se separan con su borde */
 }
 
 .tax-periodo {
@@ -1518,18 +1519,9 @@ label {
 .velo-hoja,
 .hoja-sistema,
 .abrir-hoja,
-.tab-mas,
 .nav-corto,
 .hoja-cerrar {
   display: none;
-}
-
-.tab-mas {
-  position: relative;
-  border: none;
-  background: transparent;
-  font-family: var(--font);
-  cursor: pointer;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1725,8 +1717,7 @@ label {
     padding: 0;
   }
 
-  .nav-item,
-  .sidebar-nav.con-mas .tab-mas {
+  .nav-item {
     flex: 1 1 0;
     flex-direction: column;
     justify-content: center;
@@ -1744,18 +1735,13 @@ label {
     text-align: center;
   }
 
-  .sidebar-nav.con-mas .tab-mas {
-    display: flex;
-  }
-
   .nav-item:hover {
     background: transparent;
     color: var(--text-2);
   }
 
   .nav-item.active,
-  .nav-item.active:hover,
-  .tab-mas.active {
+  .nav-item.active:hover {
     background: transparent;
     color: var(--accent);
     font-weight: 600;
@@ -1784,7 +1770,57 @@ label {
     line-height: 1.1;
   }
 
-  .nav-item.en-mas {
+  /* En la barra solo cambia el color al tocar: animar el tamaño hacía que las
+     pestañas se reacomodaran a destiempo al pasar a barra deslizable. */
+  .nav-item {
+    transition: color 0.15s ease;
+  }
+
+  /* Tarjetas de impuestos: sin huecos entre filas (gana al espaciado de .card-body) */
+  .card-body.tax-body {
+    gap: 0;
+  }
+
+  /* Con más de cinco secciones la barra se desliza con el dedo. Cada pestaña
+     mide 1/5,5 del ancho: la sexta se asoma e invita a deslizar. */
+  .sidebar-nav.desliza {
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sidebar-nav.desliza::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sidebar-nav.desliza .nav-item {
+    flex: 0 0 calc(100% / 5.5);
+    min-width: 64px;
+    scroll-snap-align: start;
+  }
+
+  /* Borde desvanecido del lado donde quedan más pestañas */
+  .sidebar-nav.hay-despues {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  }
+
+  .sidebar-nav.hay-antes {
+    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent);
+    mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent);
+  }
+
+  .sidebar-nav.hay-antes.hay-despues {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+  }
+
+  /* Un contador en cero no aporta: solo se muestran los que tienen valor */
+  .sidebar .nav-badge.sin-valor {
     display: none;
   }
 
@@ -1931,6 +1967,29 @@ label {
     min-height: 50px;
   }
 
+  /* Fechas: en iPhone el campo nativo ignora el ancho y se salía del recuadro */
+  input[type="date"],
+  input[type="month"] {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    text-align: left;
+  }
+
+  input[type="date"]::-webkit-date-and-time-value,
+  input[type="month"]::-webkit-date-and-time-value {
+    text-align: left;
+  }
+
+  /* Etiquetas de aviso en cabeceras: pueden ocupar dos líneas */
+  .badge-note {
+    white-space: normal;
+    line-height: 1.35;
+    border-radius: 10px;
+  }
+
   /* Adjuntar soporte: el selector de archivo no se sale del formulario */
   .form-group {
     display: flex;
@@ -1962,6 +2021,30 @@ label {
     font-size: 14px;
   }
 
+  /* Cada fila en una sola línea: nombres y placas no se parten en renglones */
+  .table-wrap .data-table td {
+    white-space: nowrap;
+  }
+
+  .table-wrap .data-table td[colspan] {
+    white-space: normal;
+  }
+
+  /* Tabla vacía: el aviso arranca a la izquierda y se lee completo */
+  .data-table td.empty-row {
+    padding: 28px 16px !important;
+    text-align: left;
+  }
+
+  /* Sombra en el borde por donde quedan más columnas */
+  .table-wrap {
+    background:
+      linear-gradient(to right, var(--bg-card) 30%, transparent) left center / 28px 100% no-repeat local,
+      linear-gradient(to left, var(--bg-card) 30%, transparent) right center / 28px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.55), transparent) left center / 14px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.55), transparent) right center / 14px 100% no-repeat scroll;
+  }
+
   .data-table tbody tr:hover td {
     background: transparent;
   }
@@ -1969,6 +2052,13 @@ label {
   .tax-row {
     padding: 12px 16px;
     font-size: 14px;
+  }
+
+  .tax-row .tax-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
   }
 
   .tax-status,
@@ -2182,51 +2272,7 @@ label {
     border-radius: 12px !important;
   }
 
-  /* Hoja «Más» */
-  .lista-mas {
-    display: grid;
-    gap: 4px;
-    padding: 8px;
-  }
-
-  .opcion-mas {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    width: 100%;
-    min-height: 52px;
-    padding: 10px 12px;
-    border: none;
-    border-radius: var(--r-md);
-    background: transparent;
-    color: var(--text-1);
-    font-family: var(--font);
-    font-size: 17px;
-    font-weight: 500;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .opcion-mas.active {
-    background: var(--accent-dim);
-    color: var(--accent);
-  }
-
-  .opcion-mas .nav-icon {
-    width: 28px;
-    color: inherit;
-  }
-
-  .opcion-mas .nav-icon svg {
-    width: 22px;
-    height: 22px;
-  }
-
-  .opcion-mas-etiqueta {
-    flex: 1;
-  }
-
-  /* Modales como hojas */
+  /* Modales como hojas */  /* Modales como hojas */
   .modal-bg {
     align-items: flex-end;
     padding: 0;
